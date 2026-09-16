@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Balaji Automobiles carbon. Also the Flutter splash background and the
+         plate the launcher icon is cut on. -->
+    <color name="brand_carbon">#FF101215</color>
+    <color name="ic_launcher_background">#FF101215</color>
+</resources>

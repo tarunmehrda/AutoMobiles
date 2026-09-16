@@ -1,0 +1,16 @@
+# Local-only material, not part of the app
+hiring/
+pics by user/
+*.jpeg
+*.jpg
+
+# Flutter/Dart build output
+**/build/
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

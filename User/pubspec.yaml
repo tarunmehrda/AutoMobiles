@@ -1,0 +1,67 @@
+name: garagepro
+description: "Balaji Automobiles — the customer app for Balaji Automobiles, total cars solutions."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  go_router: ^17.5.0
+  supabase_flutter: ^2.17.2
+  cached_network_image: ^3.4.1
+  intl: ^0.20.3
+  shared_preferences: ^2.5.5
+  flutter_animate: ^4.5.2
+  shimmer: ^3.0.0
+  url_launcher: ^6.3.2
+  share_plus: ^13.3.0
+  uuid: ^4.6.0
+  collection: ^1.19.1
+  flutter_svg: ^2.3.0
+  image_picker: ^1.2.3
+  video_player: ^2.9.0
+  google_sign_in: ^7.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/logo/
+    - assets/video/
+    - assets/brands/
+    - assets/photos/
+    - assets/cars/
+
+  fonts:
+    - family: Sora
+      fonts:
+        - asset: assets/fonts/Sora-400.ttf
+          weight: 400
+        - asset: assets/fonts/Sora-500.ttf
+          weight: 500
+        - asset: assets/fonts/Sora-600.ttf
+          weight: 600
+        - asset: assets/fonts/Sora-700.ttf
+          weight: 700
+        - asset: assets/fonts/Sora-800.ttf
+          weight: 800
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-400.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-500.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-600.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-700.ttf
+          weight: 700
