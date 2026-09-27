@@ -181,7 +181,7 @@ class GTile extends StatelessWidget {
                 ],
               ),
             ),
-            if (trailing != null) trailing!,
+            ?trailing,
             if (trailing == null && showChevron && onTap != null)
               Icon(Icons.chevron_right_rounded, color: p.inkFaint, size: 22),
           ],

@@ -19,8 +19,11 @@ import '../../core/widgets/g_surface.dart';
 import '../../data/models/enums.dart';
 import '../../data/seed/catalog_seed.dart';
 import '../../data/seed/media.dart';
+import '../../data/models/workshop.dart';
 import '../../state/app_state.dart';
-import '../history/widgets/booking_card.dart';
+import '../../state/providers.dart';
+import '../../core/widgets/pressable.dart';
+import '../workshop/widgets/booking_details_sheet.dart';
 import 'widgets/brand_tile.dart';
 
 class VehicleDetailPage extends ConsumerWidget {
@@ -49,8 +52,19 @@ class VehicleDetailPage extends ConsumerWidget {
     }
 
     final brand = Seed.brandByName(vehicle.brand);
-    final history = data.historyFor(vehicle.id);
+    // History is what the workshop actually did to this car, not what the
+    // customer once asked for, so it reads off the job cards.
+    final history = ref
+        .watch(workshopCardsProvider)
+        .where((c) =>
+            c.regNo.replaceAll(' ', '').toUpperCase() ==
+            vehicle.regNumber.replaceAll(' ', '').toUpperCase())
+        .toList();
     final days = vehicle.daysToService;
+    // No service on record means no due date either — `daysToService` would
+    // count from today and promise one "in 182 days" out of nothing.
+    final serviceKnown = vehicle.lastServiceDate != null;
+    final overdue = serviceKnown && days <= 0;
 
     return Scaffold(
       backgroundColor: p.canvas,
@@ -151,12 +165,12 @@ class VehicleDetailPage extends ConsumerWidget {
                           height: 44,
                           width: 44,
                           decoration: BoxDecoration(
-                            color: days <= 0 ? p.dangerSoft : p.accentSoft,
+                            color: overdue ? p.dangerSoft : p.accentSoft,
                             borderRadius: R.all(R.sm),
                           ),
                           child: Icon(Icons.build_circle_rounded,
                               size: 22,
-                              color: days <= 0 ? p.danger : p.accentInk),
+                              color: overdue ? p.danger : p.accentInk),
                         ),
                         const SizedBox(width: Gap.md),
                         Expanded(
@@ -164,9 +178,11 @@ class VehicleDetailPage extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                days <= 0
-                                    ? 'Service overdue by ${-days} days'
-                                    : 'Next service in $days days',
+                                !serviceKnown
+                                    ? 'Next service: not set'
+                                    : (overdue
+                                        ? 'Service overdue by ${-days} days'
+                                        : 'Next service in $days days'),
                                 style: AppType.labelL.c(p.ink),
                               ),
                               Text(
@@ -183,7 +199,13 @@ class VehicleDetailPage extends ConsumerWidget {
                           label: 'Book',
                           size: GButtonSize.sm,
                           expand: false,
-                          onPressed: () => context.go('/book'),
+                          // Pushed, not gone to: `go` would leave booking
+                          // as the only route, so its back arrow would have
+                          // nothing to pop and Android back would quit the
+                          // app. The car is passed along because the
+                          // customer already chose it by opening this page.
+                          onPressed: () =>
+                              context.push('/book?vehicle=${vehicle.id}'),
                         ),
                       ],
                     ),
@@ -293,10 +315,9 @@ class VehicleDetailPage extends ConsumerWidget {
                   for (var i = 0; i < history.length; i++)
                     Padding(
                       padding: const EdgeInsets.only(bottom: Gap.md),
-                      child: BookingCard(
-                        booking: history[i],
-                        index: i,
-                        showVehicle: false,
+                      child: Entrance(
+                        index: i.clamp(0, 8),
+                        child: _HistoryRow(card: history[i]),
                       ),
                     ),
                 const SizedBox(height: Gap.h2),
@@ -434,9 +455,7 @@ class _DocCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.c;
-    final days = expiry == null
-        ? null
-        : expiry!.difference(DateTime.now()).inDays;
+    final days = expiry?.difference(DateTime.now()).inDays;
     final tone = days == null
         ? GTone.neutral
         : (days < 0
@@ -469,6 +488,66 @@ class _DocCard extends StatelessWidget {
             style: AppType.bodyS.c(p.inkMuted),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One past visit, as the workshop wrote it up.
+class _HistoryRow extends StatelessWidget {
+  const _HistoryRow({required this.card});
+
+  final WorkshopCard card;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Pressable(
+      onTap: () => showBookingDetailsSheet(context, card),
+      scale: 0.985,
+      child: Container(
+        padding: const EdgeInsets.all(Gap.lg),
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: R.all(R.md),
+          border: Border.all(color: p.line),
+          boxShadow: Shadows.soft(p),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    card.items.isEmpty
+                        ? (card.voices.isEmpty
+                            ? card.number
+                            : card.voices.first)
+                        : card.items.first.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.labelL.c(p.ink),
+                  ),
+                  Text('${card.number}  ·  ${Fmt.date(card.openedAt)}',
+                      style: AppType.bodyS.c(p.inkMuted)),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(Fmt.money(card.total), style: AppType.money.c(p.ink)),
+                const SizedBox(height: 4),
+                GPill(
+                  label: card.isClosed ? 'Completed' : 'In workshop',
+                  tone: card.isClosed ? GTone.success : GTone.warning,
+                  compact: true,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

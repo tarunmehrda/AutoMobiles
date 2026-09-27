@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en-IN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<title>Balaji Automobiles | Your car. Our care.</title>
+<meta name="description" content="Book a car service, watch the work happen and pay the bill from your phone. Balaji Automobiles runs two free apps: Balaji Car for customers, and the Balaji Garage console for the workshop.">
+
+<meta name="theme-color" content="#F4F5F7">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="canonical" href="https://balajiautomobiles.in/">
+
+<!--
+  Open Graph lives here, in the static shell, on purpose. WhatsApp, Facebook and
+  most other link previewers do not run JavaScript, so per-route tags set from
+  React would never reach them. These are the site-wide card; useMeta() updates
+  the title and description in the browser for people and for Google.
+-->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Balaji Automobiles">
+<meta property="og:title" content="Balaji Automobiles | Your car. Our care.">
+<meta property="og:description" content="Book a service, watch the work happen and pay the bill, all from your phone.">
+<meta property="og:image" content="https://balajiautomobiles.in/assets/img/og-cover.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://balajiautomobiles.in/">
+<meta property="og:locale" content="en_IN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Balaji Automobiles | Your car. Our care.">
+<meta name="twitter:description" content="Book a service, watch the work happen and pay the bill, all from your phone.">
+<meta name="twitter:image" content="https://balajiautomobiles.in/assets/img/og-cover.jpg">
+
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/assets/img/icons/favicon-64.png">
+<link rel="apple-touch-icon" href="/assets/img/icons/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+
+<link rel="preload" as="image" href="/assets/img/app/u_home2.webp" fetchpriority="high">
+
+<!-- Sets the theme before the first paint, so dark mode never flashes white. -->
+<script src="/theme-init.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!--
+    Netlify detects forms by parsing the HTML it is handed at deploy time, and
+    it never runs React, so it would never see the real form. This copy is what
+    it registers: the same field names, hidden from people, present for the
+    parser. The React form on /contact posts to it by name.
+    https://docs.netlify.com/forms/setup/
+  -->
+  <form name="enquiry" data-netlify="true" netlify-honeypot="bot-field" hidden>
+    <input type="hidden" name="form-name" value="enquiry">
+    <input type="text" name="name">
+    <input type="tel" name="phone">
+    <input type="email" name="email">
+    <input type="text" name="vehicle">
+    <input type="text" name="topic">
+    <textarea name="message"></textarea>
+    <input type="text" name="bot-field">
+  </form>
+  <noscript>
+    <div style="max-width:40rem;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.6">
+      <h1>Balaji Automobiles</h1>
+      <p>This site needs JavaScript. If you would rather just talk to us:</p>
+      <p>
+        Phone <a href="tel:+919269297999">+91 92692 97999</a> &middot;
+        <a href="https://wa.me/919269297999">WhatsApp</a> &middot;
+        <a href="mailto:support@balajiautomobiles.in">support@balajiautomobiles.in</a>
+      </p>
+      <p>
+        The customer app is on
+        <a href="https://play.google.com/store/apps/details?id=com.balajiautomobiles.customer">Google Play</a>.
+      </p>
+    </div>
+  </noscript>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

@@ -16,18 +16,43 @@ class _Panel {
 }
 
 final _panels = <_Panel>[
-  _Panel('Items', Icons.add_shopping_cart_rounded, 'items',
-      (c) => c.items.length),
-  _Panel('Customer voice', Icons.record_voice_over_rounded, 'voices',
-      (c) => c.voices.length),
-  _Panel('Accessories', Icons.luggage_rounded, 'accessories',
-      (c) => c.accessories.length),
-  _Panel('Work note', Icons.sticky_note_2_rounded, 'note',
-      (c) => c.workNote.trim().isEmpty ? 0 : 1),
-  _Panel('Dent marks', Icons.car_crash_rounded, 'dents',
-      (c) => c.dents.length),
-  _Panel('Photos', Icons.photo_camera_rounded, 'photos',
-      (c) => c.photos.length),
+  _Panel(
+    'Items',
+    Icons.add_shopping_cart_rounded,
+    'items',
+    (c) => c.items.length,
+  ),
+  _Panel(
+    'Customer voice',
+    Icons.record_voice_over_rounded,
+    'voices',
+    (c) => c.voices.length,
+  ),
+  _Panel(
+    'Accessories',
+    Icons.luggage_rounded,
+    'accessories',
+    (c) => c.accessories.length,
+  ),
+  _Panel(
+    'Work note',
+    Icons.sticky_note_2_rounded,
+    'note',
+    (c) => c.workNote.trim().isEmpty ? 0 : 1,
+  ),
+  _Panel('Dent marks', Icons.car_crash_rounded, 'dents', (c) => c.dents.length),
+  _Panel(
+    'Photos',
+    Icons.photo_camera_rounded,
+    'photos',
+    (c) => c.photos.length,
+  ),
+  _Panel(
+    'Mechanics',
+    Icons.engineering_rounded,
+    'mechanics',
+    (c) => c.mechanicIds.length,
+  ),
 ];
 
 /// The row of everything attached to a job card, with a count so the counter
@@ -53,7 +78,9 @@ class PanelStrip extends StatelessWidget {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(
-              horizontal: Gap.page, vertical: Gap.sm),
+            horizontal: Gap.page,
+            vertical: Gap.sm,
+          ),
           itemCount: _panels.length,
           separatorBuilder: (_, _) => const SizedBox(width: Gap.lg),
           itemBuilder: (context, i) {
@@ -107,10 +134,14 @@ class _PanelButton extends StatelessWidget {
                     color: filled ? p.accentSoft : p.surfaceSunken,
                     borderRadius: R.all(R.md),
                     border: Border.all(
-                        color: filled ? p.accent.withValues(alpha: 0.3) : p.line),
+                      color: filled ? p.accent.withValues(alpha: 0.3) : p.line,
+                    ),
                   ),
-                  child: Icon(icon,
-                      size: 20, color: filled ? p.accentInk : p.inkMuted),
+                  child: Icon(
+                    icon,
+                    size: 20,
+                    color: filled ? p.accentInk : p.inkMuted,
+                  ),
                 ),
                 if (filled)
                   Positioned(
@@ -118,8 +149,10 @@ class _PanelButton extends StatelessWidget {
                     top: -5,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
-                      constraints:
-                          const BoxConstraints(minWidth: 17, minHeight: 17),
+                      constraints: const BoxConstraints(
+                        minWidth: 17,
+                        minHeight: 17,
+                      ),
                       decoration: BoxDecoration(
                         color: p.ink,
                         borderRadius: R.all(R.pill),

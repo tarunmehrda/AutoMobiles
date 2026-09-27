@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/i18n/strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_type.dart';
@@ -9,6 +10,7 @@ import '../../../core/widgets/g_appbar.dart';
 import '../../../core/widgets/g_button.dart';
 import '../../../core/widgets/g_feedback.dart';
 import '../../../core/widgets/g_field.dart';
+import '../../../core/widgets/g_art.dart';
 import '../../../core/widgets/g_state.dart';
 import '../../../core/widgets/pressable.dart';
 
@@ -80,29 +82,32 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
     final options = widget.presets
         .where((e) => q.isEmpty || e.toLowerCase().contains(q))
         .toList();
-    final exactMatch = widget.presets
-        .any((e) => e.toLowerCase() == q) ||
+    final exactMatch =
+        widget.presets.any((e) => e.toLowerCase() == q) ||
         _picked.any((e) => e.toLowerCase() == q);
 
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(
         title: widget.title,
-        subtitle: '${_picked.length} selected',
+        subtitle: '{0} selected'.trf([_picked.length]),
       ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-                Gap.page, Gap.sm, Gap.page, Gap.md),
+              Gap.page,
+              Gap.sm,
+              Gap.page,
+              Gap.md,
+            ),
             child: Text(widget.subtitle, style: AppType.bodyM.c(p.inkMuted)),
           ),
 
           // --- what is already on the card -------------------------------
           if (_picked.isNotEmpty)
             Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
+              padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Wrap(
@@ -115,7 +120,11 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
                         scale: 0.94,
                         child: Container(
                           padding: const EdgeInsets.fromLTRB(
-                              Gap.md, Gap.sm, Gap.sm, Gap.sm),
+                            Gap.md,
+                            Gap.sm,
+                            Gap.sm,
+                            Gap.sm,
+                          ),
                           decoration: BoxDecoration(
                             color: p.ink,
                             borderRadius: R.all(R.pill),
@@ -125,14 +134,17 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
                             children: [
                               Text(
                                 value,
-                                style: AppType.labelM
-                                    .c(p.isDark ? p.canvas : Colors.white),
+                                style: AppType.labelM.c(
+                                  p.isDark ? p.canvas : Colors.white,
+                                ),
                               ),
                               const SizedBox(width: 5),
-                              Icon(Icons.close_rounded,
-                                  size: 14,
-                                  color: (p.isDark ? p.canvas : Colors.white)
-                                      .withValues(alpha: 0.7)),
+                              Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: (p.isDark ? p.canvas : Colors.white)
+                                    .withValues(alpha: 0.7),
+                              ),
                             ],
                           ),
                         ),
@@ -145,7 +157,7 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
             child: GSearchBar(
-              hint: 'Search or type something new',
+              hint: 'Search or type something new'.tr,
               controller: _custom,
               onChanged: (v) => setState(() => _query = v),
               onClear: _query.isEmpty
@@ -159,14 +171,13 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
 
           Expanded(
             child: ListView(
-              padding:
-                  const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.h2),
+              padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.h2),
               children: [
                 if (q.isNotEmpty && !exactMatch)
                   Padding(
                     padding: const EdgeInsets.only(bottom: Gap.md),
                     child: GButton(
-                      label: 'Add "${_custom.text.trim()}"',
+                      label: 'Add "{0}"'.trf([_custom.text.trim()]),
                       kind: GButtonKind.ghost,
                       size: GButtonSize.md,
                       icon: Icons.add_rounded,
@@ -177,8 +188,9 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
                   GEmptyState(
                     compact: true,
                     icon: widget.icon,
-                    title: 'Nothing preset matches',
-                    message: 'Add it as a one-off with the button above.',
+                    title: 'Nothing preset matches'.tr,
+                    art: Art.searching,
+                    message: 'Add it as a one-off with the button above.'.tr,
                   )
                 else
                   Wrap(
@@ -195,9 +207,11 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
                   ),
                 if (_picked.isEmpty && q.isEmpty) ...[
                   const SizedBox(height: Gap.xxl),
-                  Text(widget.emptyHint,
-                      textAlign: TextAlign.center,
-                      style: AppType.bodyS.c(p.inkFaint)),
+                  Text(
+                    widget.emptyHint,
+                    textAlign: TextAlign.center,
+                    style: AppType.bodyS.c(p.inkFaint),
+                  ),
                 ],
               ],
             ),
@@ -206,10 +220,10 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
       ),
       bottomNavigationBar: GBottomBar(
         child: GButton.accent(
-          label: 'Done',
+          label: 'Done'.tr,
           onPressed: () {
             widget.onSave(_picked);
-            GFeedback.success(context, '${widget.title} saved');
+            GFeedback.success(context, '{0} saved'.trf([widget.title]));
             context.pop();
           },
         ),
@@ -238,8 +252,10 @@ class _Chip extends StatelessWidget {
       child: AnimatedContainer(
         duration: Motion.fast,
         curve: Motion.enter,
-        padding:
-            const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.md),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.lg,
+          vertical: Gap.md,
+        ),
         decoration: BoxDecoration(
           color: selected ? p.accentSoft : p.surface,
           borderRadius: R.all(R.pill),

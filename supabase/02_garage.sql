@@ -17,6 +17,36 @@
 create extension if not exists "pgcrypto";
 
 -- ---------------------------------------------------------------------
+-- 0. Clear the superseded signatures
+-- ---------------------------------------------------------------------
+-- An earlier, standalone version of this schema shipped in
+-- Admin/supabase/schema.sql. Where it has been run against a project, its
+-- functions are still there and they block this one two ways:
+--
+--   * `create_garage(payload json)` and `save_job_card(payload json)` take
+--     `json` where these take `jsonb`, so both survive side by side as
+--     overloads. PostgREST cannot pick between them and answers PGRST203 —
+--     which is the console failing to register a workshop at all.
+--   * `my_garage()`, `garage_snapshot()` and `job_card_detail()` have the
+--     same argument lists but return `json`. CREATE OR REPLACE cannot
+--     change a return type, so this file used to abort on the first of
+--     them and everything after it silently never ran.
+--
+-- Dropping them by their old signatures is what lets the definitions below
+-- land. Nothing is lost: every one of them is recreated further down, and
+-- CASCADE only takes the old policies that leaned on `owns_garage`, which
+-- section 7 replaces.
+--
+-- Harmless on a clean project — there is nothing there to drop.
+drop function if exists public.create_garage(json)      cascade;
+drop function if exists public.save_job_card(json)      cascade;
+drop function if exists public.garage_snapshot(uuid)    cascade;
+drop function if exists public.job_card_detail(text)    cascade;
+drop function if exists public.my_garage()              cascade;
+drop function if exists public.issue_customer_code(text) cascade;
+drop function if exists public.owns_garage(uuid)        cascade;
+
+-- ---------------------------------------------------------------------
 -- Digits-only phone, so '+91 96969 69696' and '9696969696' match.
 -- ---------------------------------------------------------------------
 create or replace function public.norm_phone(p text)
@@ -127,12 +157,18 @@ create table if not exists public.garage_vehicles (
   model       text not null default '',
   variant     text not null default '',
   fuel        text not null default 'petrol',
+  shape       text not null default 'fourWheeler',
   year        int,
   vin         text not null default '',
   engine_no   text not null default '',
   colour      text not null default '',
   created_at  timestamptz not null default now()
 );
+-- Added after the table shipped, so `create table if not exists` above will
+-- not put it on a database that already exists. Idempotent on purpose: this
+-- file is re-run against live projects.
+alter table public.garage_vehicles
+  add column if not exists shape text not null default 'fourWheeler';
 create index if not exists garage_vehicles_garage_idx
   on public.garage_vehicles (garage_id);
 create index if not exists garage_vehicles_customer_idx
@@ -157,6 +193,25 @@ create table if not exists public.masters (
 );
 create index if not exists masters_garage_kind_idx
   on public.masters (garage_id, kind);
+
+-- Added after the table shipped, so the `create table if not exists` above
+-- will not put them on a database that already has it. The console has been
+-- sending all six for a while: without them every masters upsert comes back
+-- PGRST204 and the whole stock list silently stops syncing.
+alter table public.masters
+  add column if not exists cost       numeric(12,2) not null default 0,
+  add column if not exists make       text not null default '',
+  add column if not exists rack       text not null default '',
+  add column if not exists part_group text not null default 'running',
+  add column if not exists outsourced boolean not null default false,
+  add column if not exists fits       text[] not null default '{}';
+
+do $$ begin
+  alter table public.masters
+    add constraint masters_part_group_check
+    check (part_group in ('running', 'engine', 'accessory'));
+exception when duplicate_object then null;
+end $$;
 
 -- =====================================================================
 -- 4. Job cards
@@ -317,6 +372,108 @@ create trigger garage_customers_backfill
   for each row execute function public.backfill_job_card_profiles();
 
 -- =====================================================================
+-- 6b. The books
+-- =====================================================================
+-- Everything the console tracked only on the device until now: what the
+-- workshop spent, what moved through the drawer, who it buys from, what it
+-- sold over the counter, what it has on order, and what it publishes on its
+-- public page. All of it was lost on a reinstall.
+--
+-- None of it is customer-facing except `online_services`, which is the menu
+-- a linked customer is offered.
+
+create table if not exists public.expenses (
+  id         text primary key,
+  garage_id  uuid not null references public.garages (id) on delete cascade,
+  title      text not null default '',
+  amount     numeric(12,2) not null default 0,
+  at         timestamptz not null default now(),
+  category   text not null default 'General',
+  supplier   text not null default '',
+  paid       numeric(12,2) not null default 0,
+  note       text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists expenses_garage_idx
+  on public.expenses (garage_id, at desc);
+
+-- The day book. `inward` is money received, otherwise money paid away.
+create table if not exists public.cash_book (
+  id          text primary key,
+  garage_id   uuid not null references public.garages (id) on delete cascade,
+  party       text not null default '',
+  amount      numeric(12,2) not null default 0,
+  at          timestamptz not null default now(),
+  inward      boolean not null default true,
+  reason      text not null default '',
+  mode        text not null default 'cash'
+                check (mode in ('cash', 'upi', 'card', 'netbanking', 'cheque')),
+  -- A plain column rather than a foreign key: a drawer entry outlives the
+  -- card it came from, and deleting a card must not quietly delete the
+  -- record of money that actually changed hands.
+  job_card_id text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists cash_book_garage_idx
+  on public.cash_book (garage_id, at desc);
+
+create table if not exists public.suppliers (
+  id          text primary key,
+  garage_id   uuid not null references public.garages (id) on delete cascade,
+  name        text not null default '',
+  phone       text not null default '',
+  address     text not null default '',
+  gstin       text not null default '',
+  outstanding numeric(12,2) not null default 0,
+  created_at  timestamptz not null default now()
+);
+create index if not exists suppliers_garage_idx on public.suppliers (garage_id);
+
+-- Items ride as jsonb on both of the next two, the way dents do on a job
+-- card: the console sends and expects the whole document as one object, and
+-- splitting them into child tables would buy nothing and cost atomicity.
+create table if not exists public.counter_sales (
+  id         text primary key,
+  garage_id  uuid not null references public.garages (id) on delete cascade,
+  number     text not null default '',
+  customer   text not null default '',
+  phone      text not null default '',
+  at         timestamptz not null default now(),
+  items      jsonb not null default '[]'::jsonb,
+  paid       numeric(12,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists counter_sales_garage_idx
+  on public.counter_sales (garage_id, at desc);
+
+create table if not exists public.purchase_orders (
+  id          text primary key,
+  garage_id   uuid not null references public.garages (id) on delete cascade,
+  number      text not null default '',
+  supplier_id text not null default '',
+  at          timestamptz not null default now(),
+  items       jsonb not null default '[]'::jsonb,
+  received    boolean not null default false,
+  received_at timestamptz,
+  note        text not null default '',
+  created_at  timestamptz not null default now()
+);
+create index if not exists purchase_orders_garage_idx
+  on public.purchase_orders (garage_id, at desc);
+
+create table if not exists public.online_services (
+  id            text primary key,
+  garage_id     uuid not null references public.garages (id) on delete cascade,
+  name          text not null default '',
+  price         numeric(12,2) not null default 0,
+  blurb         text not null default '',
+  duration_mins int not null default 60,
+  created_at    timestamptz not null default now()
+);
+create index if not exists online_services_garage_idx
+  on public.online_services (garage_id);
+
+-- =====================================================================
 -- 7. Row level security
 -- =====================================================================
 alter table public.garages          enable row level security;
@@ -331,6 +488,12 @@ alter table public.payments         enable row level security;
 alter table public.sms_events       enable row level security;
 alter table public.garage_bookings  enable row level security;
 alter table public.reviews          enable row level security;
+alter table public.expenses         enable row level security;
+alter table public.cash_book        enable row level security;
+alter table public.suppliers        enable row level security;
+alter table public.counter_sales    enable row level security;
+alter table public.purchase_orders  enable row level security;
+alter table public.online_services  enable row level security;
 
 -- Membership test. SECURITY DEFINER so the policy on garage_members never
 -- has to consult itself.
@@ -366,10 +529,19 @@ set search_path = public as $$
 $$;
 
 -- Has the caller ever dealt with this garage?
+--
+-- Being in the garage's customer book counts, and has to: a workshop that
+-- takes somebody's details at the counter and hands them a link code has
+-- dealt with them. Without this the freshly linked customer could not read
+-- the letterhead of the shop they had just been linked to, so the app had
+-- no workshop to show them until their first job card existed.
 create or replace function public.deals_with_garage(gid uuid)
 returns boolean language sql stable security definer
 set search_path = public as $$
   select exists (
+    select 1 from public.garage_customers c
+    where c.garage_id = gid and c.profile_id = auth.uid()
+  ) or exists (
     select 1 from public.job_cards j
     where j.garage_id = gid and j.customer_profile_id = auth.uid()
   ) or exists (
@@ -412,7 +584,9 @@ declare t text;
 begin
   foreach t in array array[
     'staff','garage_customers','garage_vehicles','masters',
-    'job_cards','garage_bookings'
+    'job_cards','garage_bookings',
+    'expenses','cash_book','suppliers','counter_sales','purchase_orders',
+    'online_services'
   ] loop
     execute format('drop policy if exists %I_member on public.%I', t, t);
     execute format(
@@ -470,6 +644,13 @@ create policy garage_bookings_customer_read on public.garage_bookings
 drop policy if exists garage_bookings_customer_insert on public.garage_bookings;
 create policy garage_bookings_customer_insert on public.garage_bookings
   for insert with check (profile_id = auth.uid());
+
+-- The menu a workshop publishes is the one thing in 6b a customer sees: it
+-- is what the booking screen offers them. Only for a shop they actually
+-- deal with, so it is not a directory of everybody's price list.
+drop policy if exists online_services_customer_read on public.online_services;
+create policy online_services_customer_read on public.online_services
+  for select using (public.deals_with_garage(garage_id));
 
 -- --- reviews ----------------------------------------------------------
 drop policy if exists reviews_read on public.reviews;

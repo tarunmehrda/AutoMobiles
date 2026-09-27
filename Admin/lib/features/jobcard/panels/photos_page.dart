@@ -2,17 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/i18n/strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
-import '../../../core/theme/app_type.dart';
 import '../../../core/widgets/g_appbar.dart';
 import '../../../core/widgets/g_button.dart';
 import '../../../core/widgets/g_feedback.dart';
+import '../../../core/widgets/g_art.dart';
 import '../../../core/widgets/g_state.dart';
 import '../../../core/widgets/local_image.dart';
 import '../../../core/widgets/pressable.dart';
 import '../../../state/admin_state.dart';
 import '../../../state/providers.dart';
+import '../widgets/photo_pick.dart';
 
 /// Photographs taken at handover and during the work. The proof that settles
 /// an argument about a scratch three weeks later.
@@ -26,24 +28,15 @@ class PhotosPage extends ConsumerStatefulWidget {
 }
 
 class _PhotosPageState extends ConsumerState<PhotosPage> {
-  final _picker = ImagePicker();
   bool _busy = false;
 
   Future<void> _pick(ImageSource source) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final files = source == ImageSource.camera
-          ? [await _picker.pickImage(source: source, imageQuality: 80)]
-          : await _picker.pickMultiImage(imageQuality: 80);
-      final paths =
-          files.whereType<XFile>().map((f) => f.path).toList();
+      final paths = await capturePhotos(context, source);
       if (paths.isNotEmpty) {
         ref.read(adminProvider.notifier).addPhotos(widget.id, paths);
-      }
-    } catch (e) {
-      if (mounted) {
-        GFeedback.error(context, 'Could not open the camera or gallery.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -55,12 +48,16 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
     final p = context.c;
     final card = ref.watch(jobCardProvider(widget.id));
     if (card == null) {
-      return const Scaffold(
-        appBar: GHeader(title: 'Photos'),
+      return Scaffold(
+        appBar: GHeader(
+          title: 'Photos'.tr,
+          subtitle: 'The condition you took it in'.tr,
+        ),
         body: GEmptyState(
           icon: Icons.photo_camera_outlined,
-          title: 'Job card not found',
-          message: 'Nothing to attach photos to.',
+          title: 'Job card not found'.tr,
+          art: Art.searching,
+          message: 'Nothing to attach photos to.'.tr,
         ),
       );
     }
@@ -68,23 +65,27 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(
-        title: 'Photos',
-        subtitle: '${card.photos.length} on this card',
+        title: 'Photos'.tr,
+        subtitle: '{0} on this card'.trf([card.photos.length]),
       ),
       body: card.photos.isEmpty
           ? GEmptyState(
               icon: Icons.photo_camera_rounded,
-              title: 'No photos yet',
-              message: 'Shoot the vehicle at handover — panels, odometer, '
-                  'anything already damaged.',
-              actionLabel: 'Take a photo',
+              title: 'No photos yet'.tr,
+              message:
+                  'Shoot the vehicle at handover — panels, odometer, anything already damaged.'
+                      .tr,
+              actionLabel: 'Take a photo'.tr,
               onAction: () => _pick(ImageSource.camera),
             )
           : GridView.builder(
               padding: const EdgeInsets.fromLTRB(
-                  Gap.page, Gap.md, Gap.page, Gap.h2),
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
+                Gap.page,
+                Gap.md,
+                Gap.page,
+                Gap.h2,
+              ),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 mainAxisSpacing: Gap.sm,
                 crossAxisSpacing: Gap.sm,
@@ -93,7 +94,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
               itemBuilder: (context, i) {
                 final path = card.photos[i];
                 return Pressable(
-                  onTap: () => _preview(path),
+                  onTap: () => previewPhoto(context, path),
                   scale: 0.96,
                   child: Container(
                     clipBehavior: Clip.antiAlias,
@@ -108,8 +109,11 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
                         localImage(
                           path,
                           fallback: () => Center(
-                            child: Icon(Icons.broken_image_rounded,
-                                size: 22, color: p.inkFaint),
+                            child: Icon(
+                              Icons.broken_image_rounded,
+                              size: 22,
+                              color: p.inkFaint,
+                            ),
                           ),
                         ),
                         Positioned(
@@ -127,8 +131,11 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
                                 color: p.scrim,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.close_rounded,
-                                  size: 14, color: Colors.white),
+                              child: const Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
@@ -143,7 +150,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
           children: [
             Expanded(
               child: GButton(
-                label: 'Camera',
+                label: 'Camera'.tr,
                 kind: GButtonKind.outline,
                 size: GButtonSize.lg,
                 icon: Icons.photo_camera_rounded,
@@ -155,7 +162,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
             const SizedBox(width: Gap.md),
             Expanded(
               child: GButton.accent(
-                label: 'Gallery',
+                label: 'Gallery'.tr,
                 icon: Icons.photo_library_rounded,
                 onPressed: () => _pick(ImageSource.gallery),
               ),
@@ -163,51 +170,6 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
           ],
         ),
       ),
-    );
-  }
-
-  void _preview(String path) {
-    showDialog<void>(
-      context: context,
-      barrierColor: context.c.scrim,
-      builder: (context) {
-        final p = context.c;
-        return Dialog(
-          insetPadding: const EdgeInsets.all(Gap.lg),
-          backgroundColor: Colors.transparent,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ClipRRect(
-                borderRadius: R.all(R.lg),
-                child: InteractiveViewer(
-                  maxScale: 4,
-                  child: localImage(
-                    path,
-                    fit: BoxFit.contain,
-                    fallback: () => Container(
-                      height: 200,
-                      color: p.surfaceSunken,
-                      child: Center(
-                        child: Text('Image unavailable',
-                            style: AppType.bodyM.c(p.inkMuted)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: Gap.lg),
-              GButton(
-                label: 'Close',
-                kind: GButtonKind.ghost,
-                size: GButtonSize.md,
-                expand: false,
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

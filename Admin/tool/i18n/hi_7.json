@@ -1,0 +1,17 @@
+{
+ "Commission": "कमीशन",
+ "What this workshop owes the platform": "यह वर्कशॉप प्लेटफ़ॉर्म को कितना देती है",
+ "Private to this workshop": "सिर्फ़ इस वर्कशॉप के लिए",
+ "Could not load the commission": "कमीशन लोड नहीं हो सका",
+ "Pull down to try again.": "दोबारा कोशिश के लिए नीचे खींचें।",
+ "Only the owner can see this": "इसे सिर्फ़ मालिक देख सकते हैं",
+ "Commission is private to the workshop owner.": "कमीशन सिर्फ़ वर्कशॉप मालिक के लिए है।",
+ "To pay": "देना है",
+ "{0}% of each closed bill before GST. Set by the platform; your customers never pay or see it.": "हर बंद बिल का GST से पहले {0}%। प्लेटफ़ॉर्म तय करता है; आपके ग्राहक इसे न देते हैं, न देखते हैं।",
+ "Recent": "हाल के",
+ "Nothing yet. Commission is booked when a job card is closed.": "अभी कुछ नहीं। जॉब कार्ड बंद होने पर कमीशन जुड़ता है।",
+ "This phone has not reached the server since it opened. Any job card not sent yet is removed when you sign out.": "ऐप खुलने के बाद से यह फ़ोन सर्वर तक नहीं पहुँचा। साइन आउट करने पर जो जॉब कार्ड अभी नहीं भेजे गए, वे हट जाएँगे।",
+ "{0} job card has not reached the server yet. Signing out removes it from this phone.": "{0} जॉब कार्ड अभी सर्वर तक नहीं पहुँचा। साइन आउट करने पर यह इस फ़ोन से हट जाएगा।",
+ "{0} job cards have not reached the server yet. Signing out removes them from this phone.": "{0} जॉब कार्ड अभी सर्वर तक नहीं पहुँचे। साइन आउट करने पर ये इस फ़ोन से हट जाएँगे।",
+ "Everything on this device is cleared. With no backend configured, there is no copy elsewhere.": "इस फ़ोन का सारा डेटा हट जाएगा। बैकएंड न होने पर इसकी कोई और कॉपी नहीं है।"
+}

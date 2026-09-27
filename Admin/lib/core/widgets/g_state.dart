@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../core/i18n/strings.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_tokens.dart';
 import '../theme/app_type.dart';
+import 'g_art.dart';
 import 'g_button.dart';
 
 /// Skeleton block. Wrap groups in [GSkeletonGroup] for one shared sweep.
@@ -60,6 +62,7 @@ class GEmptyState extends StatelessWidget {
     required this.title,
     required this.message,
     this.icon = Icons.inbox_rounded,
+    this.art = Art.empty,
     this.actionLabel,
     this.onAction,
     this.compact = false,
@@ -68,11 +71,28 @@ class GEmptyState extends StatelessWidget {
 
   final String title;
   final String message;
+
+  /// Kept for the handful of places that want the old tinted disc — an empty
+  /// state inside a card, where a full illustration would be the largest
+  /// thing on screen. See [drawn].
   final IconData icon;
+
+  /// The illustration. Defaults to the generic empty box, so a screen that
+  /// says nothing about which picture it wants still gets one.
+  final String art;
+
   final String? actionLabel;
   final VoidCallback? onAction;
+
+  /// Tighter spacing and a smaller picture, for an empty state sitting inside
+  /// a card or a tab rather than owning the screen.
   final bool compact;
+
   final Color? tone;
+
+  /// Whether to draw the illustration rather than the disc. An empty [art]
+  /// opts back out.
+  bool get drawn => art.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -81,33 +101,46 @@ class GEmptyState extends StatelessWidget {
     return Center(
       child: Padding(
         padding: EdgeInsets.symmetric(
-            horizontal: Gap.h1, vertical: compact ? Gap.xxl : Gap.h3),
+          horizontal: Gap.h1,
+          vertical: compact ? Gap.lg : Gap.xxl,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              height: compact ? 64 : 84,
-              width: compact ? 64 : 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [
-                  accent.withValues(alpha: 0.16),
-                  accent.withValues(alpha: 0.02),
-                ]),
+            if (drawn)
+              GArt(art, height: compact ? 96 : 138, semanticLabel: title)
+            else
+              Container(
+                height: compact ? 64 : 84,
+                width: compact ? 64 : 84,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      accent.withValues(alpha: 0.16),
+                      accent.withValues(alpha: 0.02),
+                    ],
+                  ),
+                ),
+                child: Icon(icon, size: compact ? 28 : 36, color: accent),
               ),
-              child: Icon(icon, size: compact ? 28 : 36, color: accent),
-            ),
             SizedBox(height: compact ? Gap.lg : Gap.xxl),
-            Text(title,
-                textAlign: TextAlign.center,
-                style: (compact ? AppType.h2 : AppType.d3).c(p.ink)),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: (compact ? AppType.h2 : AppType.d3)
+                  .c(p.ink)
+                  .w(FontWeight.w800),
+            ),
             const SizedBox(height: Gap.sm),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: AppType.bodyM.c(p.inkMuted)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppType.bodyM.c(p.inkMuted),
+            ),
             if (actionLabel != null) ...[
               const SizedBox(height: Gap.xxl),
-              GButton(
+              GButton.accent(
                 label: actionLabel!,
                 onPressed: onAction,
                 expand: false,
@@ -162,8 +195,10 @@ class GStepProgress extends StatelessWidget {
           const SizedBox(height: Gap.sm),
           Row(
             children: [
-              Text('Step ${step + 1} of $total',
-                  style: AppType.labelS.c(p.inkFaint)),
+              Text(
+                'Step {0} of {1}'.trf([step + 1, total]),
+                style: AppType.labelS.c(p.inkFaint),
+              ),
               const SizedBox(width: Gap.sm),
               Text('•', style: AppType.labelS.c(p.inkFaint)),
               const SizedBox(width: Gap.sm),

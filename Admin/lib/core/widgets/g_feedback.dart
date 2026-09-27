@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,6 +10,7 @@ import '../theme/app_tokens.dart';
 import '../theme/app_type.dart';
 import 'g_badge.dart';
 import 'g_button.dart';
+import 'g_field.dart';
 import 'pressable.dart';
 
 /// App-wide feedback helpers. Every toast/sheet/dialog in the product goes
@@ -13,6 +18,27 @@ import 'pressable.dart';
 class GFeedback {
   const GFeedback._();
 
+  /// The toast currently shown over a sheet or dialog, if any — see
+  /// [_OverlayToast]. Bumped every time a toast is shown, so the one on
+  /// screen knows it has been replaced and gets out of the way, the same way
+  /// `clearSnackBars` retires the last SnackBar.
+  static final ValueNotifier<int> _overlayToast = ValueNotifier<int>(0);
+
+  /// Shows a one-line message at the bottom of the screen.
+  ///
+  /// A SnackBar is drawn by the page's Scaffold, which sits *under* every
+  /// modal route. So a toast raised from inside a bottom sheet or a dialog —
+  /// "Enter an amount first." on the payment sheet is the one everybody
+  /// hit — used to land on the page beneath: dimmed by the scrim and hidden
+  /// behind the very sheet it was about. The counter tapped the button,
+  /// nothing seemed to happen, and they tapped it again.
+  ///
+  /// When [context] belongs to the modal route on top (a sheet or dialog that
+  /// is still open), the toast goes into the root [Overlay] instead, which
+  /// is above every route. Everywhere else it stays a SnackBar, so it still
+  /// sits above the bottom navigation and moves with the Scaffold. A sheet
+  /// that is already on its way out (the usual "save, pop, say saved")
+  /// counts as gone: the page it is revealing is where the toast belongs.
   static void toast(
     BuildContext context,
     String message, {
@@ -23,12 +49,52 @@ class GFeedback {
     Duration duration = const Duration(seconds: 3),
   }) {
     final p = context.c;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
     final t = toneOf(context, tone);
     final bg = tone == GTone.ink ? p.inverse : t.bg;
     final fg = tone == GTone.ink ? p.onInverse : t.fg;
+    final route = ModalRoute.of(context);
+    final messenger = ScaffoldMessenger.maybeOf(context);
 
+    // Whatever is on screen now is superseded, wherever it was drawn.
+    final generation = ++_overlayToast.value;
+
+    if (route is PopupRoute && route.isCurrent) {
+      final overlay = Overlay.maybeOf(context, rootOverlay: true);
+      if (overlay != null) {
+        messenger?.clearSnackBars();
+        late final OverlayEntry entry;
+        entry = OverlayEntry(
+          builder: (_) => _OverlayToast(
+            generation: generation,
+            live: _overlayToast,
+            duration: duration,
+            background: Color.alphaBlend(bg, p.surface),
+            border: tone == GTone.ink
+                ? Colors.transparent
+                : t.fg.withValues(alpha: 0.2),
+            onGone: () {
+              entry.remove();
+              entry.dispose();
+            },
+            child: _ToastContent(
+              message: message,
+              icon: icon,
+              fg: fg,
+              actionLabel: actionLabel,
+              actionColor: tone == GTone.ink ? p.volt : t.fg,
+              onAction: () {
+                _overlayToast.value++;
+                onAction?.call();
+              },
+            ),
+          ),
+        );
+        overlay.insert(entry);
+        return;
+      }
+    }
+
+    if (messenger == null) return;
     messenger
       ..clearSnackBars()
       ..showSnackBar(
@@ -37,44 +103,39 @@ class GFeedback {
           backgroundColor: bg,
           elevation: 0,
           padding: const EdgeInsets.symmetric(
-              horizontal: Gap.lg, vertical: Gap.md),
+            horizontal: Gap.lg,
+            vertical: Gap.md,
+          ),
           margin: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.lg),
           shape: RoundedRectangleBorder(
             borderRadius: R.rMd,
             side: BorderSide(
-                color: tone == GTone.ink ? Colors.transparent : t.fg.withValues(alpha: 0.2)),
+              color: tone == GTone.ink
+                  ? Colors.transparent
+                  : t.fg.withValues(alpha: 0.2),
+            ),
           ),
-          content: Row(
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 18, color: fg),
-                const SizedBox(width: Gap.md),
-              ],
-              Expanded(
-                child: Text(message, style: AppType.labelM.c(fg)),
-              ),
-              if (actionLabel != null)
-                Pressable(
-                  onTap: () {
-                    messenger.hideCurrentSnackBar();
-                    onAction?.call();
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: Gap.md),
-                    child: Text(actionLabel,
-                        style: AppType.labelM.c(
-                            tone == GTone.ink ? p.volt : t.fg)),
-                  ),
-                ),
-            ],
+          content: _ToastContent(
+            message: message,
+            icon: icon,
+            fg: fg,
+            actionLabel: actionLabel,
+            actionColor: tone == GTone.ink ? p.volt : t.fg,
+            onAction: () {
+              messenger.hideCurrentSnackBar();
+              onAction?.call();
+            },
           ),
         ),
       );
   }
 
   static void success(BuildContext context, String message) => toast(
-      context, message,
-      tone: GTone.success, icon: Icons.check_circle_rounded);
+    context,
+    message,
+    tone: GTone.success,
+    icon: Icons.check_circle_rounded,
+  );
 
   static void error(BuildContext context, String message) {
     HapticFeedback.heavyImpact();
@@ -92,6 +153,7 @@ class GFeedback {
     bool dismissible = true,
     String? title,
     String? subtitle,
+    List<ChangeNotifier> disposing = const [],
   }) {
     final p = context.c;
     return showModalBottomSheet<T>(
@@ -103,56 +165,87 @@ class GFeedback {
       barrierColor: p.scrim,
       builder: (context) {
         final p = context.c;
-        return Container(
-          margin: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + Gap.h2),
-          decoration: BoxDecoration(
-            color: p.surface,
-            borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(R.xxl)),
-            border: Border(top: BorderSide(color: p.line)),
+        // The sheet is laid out against the full screen, so an open keyboard
+        // would sit on top of it. Lifting it here — in the sheet's own
+        // builder, which rebuilds as the keyboard slides — is what keeps the
+        // fields in view. The insets are then stripped from the subtree so a
+        // caller that pads for the keyboard as well does not double up.
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
           ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: Gap.md),
-              Container(
-                height: 4,
-                width: 42,
-                decoration: BoxDecoration(
-                    color: p.line, borderRadius: R.all(R.pill)),
+          child: MediaQuery.removeViewInsets(
+            context: context,
+            removeBottom: true,
+            child: Container(
+              margin: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + Gap.h2,
               ),
-              if (title != null) ...[
-                const SizedBox(height: Gap.lg),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(title, style: AppType.d3.c(p.ink)),
-                            if (subtitle != null) ...[
-                              const SizedBox(height: 3),
-                              Text(subtitle,
-                                  style: AppType.bodyS.c(p.inkMuted)),
-                            ],
-                          ],
-                        ),
-                      ),
-                      GIconButton(
-                        icon: Icons.close_rounded,
-                        size: 36,
-                        onTap: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
+              decoration: BoxDecoration(
+                color: p.surface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(R.xxl),
                 ),
-              ],
-              Flexible(child: child),
-            ],
+                border: Border(top: BorderSide(color: p.line)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: Gap.md),
+                  Container(
+                    height: 4,
+                    width: 42,
+                    decoration: BoxDecoration(
+                      color: p.line,
+                      borderRadius: R.all(R.pill),
+                    ),
+                  ),
+                  if (title != null) ...[
+                    const SizedBox(height: Gap.lg),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(title, style: AppType.d3.c(p.ink)),
+                                if (subtitle != null) ...[
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    subtitle,
+                                    style: AppType.bodyS.c(p.inkMuted),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          GIconButton(
+                            icon: Icons.close_rounded,
+                            size: 36,
+                            onTap: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  // Anything the caller built for this sheet alone dies with the
+                  // sheet, not with the `await` that opened it — the route keeps
+                  // rebuilding all the way through its exit transition. See
+                  // [DisposeWithSubtree].
+                  Flexible(
+                    child: disposing.isEmpty
+                        ? child
+                        : DisposeWithSubtree(
+                            disposables: disposing,
+                            child: child,
+                          ),
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -188,8 +281,10 @@ class GFeedback {
                   Container(
                     height: 46,
                     width: 46,
-                    decoration:
-                        BoxDecoration(color: t.bg, borderRadius: R.all(R.md)),
+                    decoration: BoxDecoration(
+                      color: t.bg,
+                      borderRadius: R.all(R.md),
+                    ),
                     child: Icon(icon, color: t.fg, size: 23),
                   ),
                   const SizedBox(height: Gap.lg),
@@ -231,12 +326,166 @@ class GFeedback {
   }
 }
 
+/// The inside of a toast — icon, message, optional action — shared by the
+/// SnackBar and the overlay version so the two can never drift apart.
+class _ToastContent extends StatelessWidget {
+  const _ToastContent({
+    required this.message,
+    required this.icon,
+    required this.fg,
+    required this.actionLabel,
+    required this.actionColor,
+    required this.onAction,
+  });
+
+  final String message;
+  final IconData? icon;
+  final Color fg;
+  final String? actionLabel;
+  final Color actionColor;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: Gap.md),
+        ],
+        Expanded(child: Text(message, style: AppType.labelM.c(fg))),
+        if (actionLabel != null)
+          Pressable(
+            onTap: onAction,
+            child: Padding(
+              padding: const EdgeInsets.only(left: Gap.md),
+              child: Text(actionLabel!, style: AppType.labelM.c(actionColor)),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// A toast drawn in the root [Overlay], above an open sheet or dialog.
+///
+/// It looks like the floating SnackBar it stands in for and keeps the same
+/// clock, but it owns that clock itself: the timer lives in this State, so a
+/// torn-down tree (a test ending, the app going away) cancels it with
+/// everything else rather than leaving it to fire into nothing. It leaves
+/// early when a newer toast bumps [live] past its [generation].
+///
+/// It sits above whichever is taller, the keyboard or the system gesture
+/// bar, so the message a field's validation raises is not hidden by the
+/// keyboard that field just opened.
+class _OverlayToast extends StatefulWidget {
+  const _OverlayToast({
+    required this.generation,
+    required this.live,
+    required this.duration,
+    required this.background,
+    required this.border,
+    required this.onGone,
+    required this.child,
+  });
+
+  final int generation;
+  final ValueListenable<int> live;
+  final Duration duration;
+  final Color background;
+  final Color border;
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_OverlayToast> createState() => _OverlayToastState();
+}
+
+class _OverlayToastState extends State<_OverlayToast>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _in = AnimationController(
+    vsync: this,
+    duration: Motion.fast,
+  )..forward();
+  Timer? _clock;
+  bool _leaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer(widget.duration, _leave);
+    widget.live.addListener(_onLive);
+  }
+
+  void _onLive() {
+    if (widget.live.value != widget.generation) _leave();
+  }
+
+  Future<void> _leave() async {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    _clock?.cancel();
+    await _in.reverse();
+    if (mounted) widget.onGone();
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    widget.live.removeListener(_onLive);
+    _in.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final lift = math.max(mq.viewInsets.bottom, mq.viewPadding.bottom);
+    final curve = CurvedAnimation(parent: _in, curve: Motion.enter);
+    return Positioned(
+      left: Gap.lg,
+      right: Gap.lg,
+      bottom: lift + Gap.lg,
+      child: FadeTransition(
+        opacity: curve,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.4),
+            end: Offset.zero,
+          ).animate(curve),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Gap.lg,
+                vertical: Gap.md,
+              ),
+              decoration: BoxDecoration(
+                color: widget.background,
+                borderRadius: R.rMd,
+                border: Border.all(color: widget.border),
+                boxShadow: Shadows.lifted(context.c),
+              ),
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Sticky bottom action bar with a blurred, bordered surface.
 class GBottomBar extends StatelessWidget {
   const GBottomBar({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.md),
+    this.padding = const EdgeInsets.fromLTRB(
+      Gap.page,
+      Gap.md,
+      Gap.page,
+      Gap.md,
+    ),
   });
 
   final Widget child;
@@ -289,7 +538,9 @@ class GOptionRow extends StatelessWidget {
         duration: Motion.fast,
         margin: const EdgeInsets.only(bottom: Gap.sm),
         padding: const EdgeInsets.symmetric(
-            horizontal: Gap.lg, vertical: Gap.md),
+          horizontal: Gap.lg,
+          vertical: Gap.md,
+        ),
         decoration: BoxDecoration(
           color: selected ? p.surfaceSunken : p.surface,
           borderRadius: R.all(R.md),

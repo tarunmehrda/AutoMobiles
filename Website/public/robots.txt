@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+# Shared job cards are private bills, not pages. Belt and braces
+# alongside the X-Robots-Tag in _headers.
+Disallow: /j/
+
+Sitemap: https://balajiautomobiles.in/sitemap.xml

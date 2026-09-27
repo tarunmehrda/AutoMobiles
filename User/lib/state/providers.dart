@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/models/entities.dart';
 import '../data/models/enums.dart';
 import '../data/models/workshop.dart';
+import '../data/repo/push_service.dart';
 import '../data/seed/catalog_seed.dart';
 import 'app_state.dart';
 
@@ -43,6 +44,33 @@ final bookingsProvider = Provider<List<Booking>>(
 final spotlightBookingProvider = Provider<Booking?>((ref) =>
     ref.watch(appControllerProvider.select((s) => s.spotlightBooking)));
 
+/// Appointments still ahead of the customer — what the Bookings tab leads
+/// with and what the tab badge counts.
+final upcomingBookingsProvider = Provider<List<Booking>>((ref) {
+  final list = ref
+      .watch(bookingsProvider)
+      .where((b) =>
+          (b.status == BookingStatus.upcoming && !b.lapsed) ||
+          b.status == BookingStatus.active)
+      .toList()
+    ..sort((a, b) => a.slot.compareTo(b.slot));
+  return list;
+});
+
+/// Appointments that are behind them — including one whose day came and
+/// went with no job card, which the card labels "Missed".
+final pastBookingsProvider = Provider<List<Booking>>((ref) {
+  final list = ref
+      .watch(bookingsProvider)
+      .where((b) =>
+          b.status == BookingStatus.completed ||
+          b.status == BookingStatus.cancelled ||
+          b.lapsed)
+      .toList()
+    ..sort((a, b) => b.slot.compareTo(a.slot));
+  return list;
+});
+
 final bookingProvider = Provider.family<Booking?, String>((ref, id) =>
     ref.watch(appControllerProvider.select((s) => s.bookingById(id))));
 
@@ -59,6 +87,13 @@ final invoiceProvider = Provider.family<Invoice?, String>(
     (ref, id) => ref.watch(appControllerProvider.select((s) => s.invoices[id])));
 
 // --- the workshop's side -----------------------------------------------------
+
+/// The garage this customer deals with, as that garage filled it in on its
+/// own console. [Workshop.none] until they have booked with one — the
+/// screens that quote a workshop check [Workshop.isLinked] rather than
+/// falling back on a shop that does not exist.
+final workshopProvider = Provider<Workshop>(
+    (ref) => ref.watch(appControllerProvider.select((s) => s.workshop)));
 
 /// Every job card the garage has opened for this customer, newest first.
 final workshopCardsProvider = Provider<List<WorkshopCard>>(
@@ -282,11 +317,18 @@ final garageStatsProvider = Provider<GarageStats>((ref) {
       .toList()
     ..sort((a, b) => b.slot.compareTo(a.slot));
 
+  // The workshop's own bill when there is one: the invoice copy on the phone
+  // rounds every line to the rupee, and a year of visits drifts from what
+  // was actually paid.
+  final byNumber = {
+    for (final c in data.workshopCards) '${c.garageId}/${c.number}': c,
+  };
   var spend = 0;
   var saved = 0;
   for (final b in done) {
+    final card = byNumber['${b.garageId}/${b.jobCard?.number}'];
     final inv = data.invoices[b.id];
-    spend += inv?.total ?? b.total;
+    spend += card?.total.round() ?? inv?.total ?? b.total;
     saved += (b.mrpTotal - b.subtotal) + b.discount;
   }
 
@@ -297,3 +339,14 @@ final garageStatsProvider = Provider<GarageStats>((ref) {
     lastVisit: done.isEmpty ? null : done.first.slot,
   );
 });
+
+/// Updates from the workshop, as they land, for [AlertHost] to announce.
+final appAlertProvider = StreamProvider<AppNotification>(
+  (ref) => ref.watch(appControllerProvider.notifier).alerts,
+);
+
+/// Routes from tray notifications the customer tapped, including the one
+/// that launched the app. Empty on a build without push.
+final pushOpenedProvider = StreamProvider<String>(
+  (ref) => ref.watch(pushServiceProvider).openedRoutes,
+);

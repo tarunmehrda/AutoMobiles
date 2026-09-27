@@ -21,6 +21,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = true,
     this.badge,
+    this.onDark = false,
   });
 
   const GButton.accent({
@@ -33,6 +34,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = true,
     this.badge,
+    this.onDark = false,
   }) : kind = GButtonKind.accent;
 
   const GButton.outline({
@@ -45,6 +47,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = false,
     this.badge,
+    this.onDark = false,
   }) : kind = GButtonKind.outline;
 
   const GButton.ghost({
@@ -57,6 +60,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = false,
     this.badge,
+    this.onDark = false,
   }) : kind = GButtonKind.ghost;
 
   final String label;
@@ -70,6 +74,11 @@ class GButton extends StatelessWidget {
 
   /// Optional trailing pill (e.g. a price on the sticky CTA).
   final String? badge;
+
+  /// Set on an inverse surface. Outline and ghost buttons take their ink from
+  /// the page, and on a dark card that ink is dark — which is how a Call
+  /// button ends up invisible.
+  final bool onDark;
 
   double get _height => switch (size) {
         GButtonSize.sm => 38,
@@ -112,11 +121,17 @@ class GButton extends StatelessWidget {
         shadow = disabled ? null : Shadows.accent(p);
       case GButtonKind.outline:
         bg = Colors.transparent;
-        fg = p.ink;
-        border = Border.all(color: p.line, width: 1.4);
+        fg = onDark ? p.onInverse : p.ink;
+        border = Border.all(
+            color: onDark
+                ? p.onInverse.withValues(alpha: 0.35)
+                : p.line,
+            width: 1.4);
       case GButtonKind.ghost:
-        bg = p.surfaceSunken;
-        fg = p.ink;
+        bg = onDark
+            ? p.onInverse.withValues(alpha: 0.12)
+            : p.surfaceSunken;
+        fg = onDark ? p.onInverse : p.ink;
       case GButtonKind.danger:
         bg = p.dangerSoft;
         fg = p.danger;
@@ -140,12 +155,19 @@ class GButton extends StatelessWidget {
                 Icon(icon, size: size == GButtonSize.sm ? 16 : 19, color: fg),
                 const SizedBox(width: Gap.sm),
               ],
+              // A button label is never shortened to "Update or …". If the
+              // words do not fit, the type gives way instead — the whole
+              // label always stays readable.
               Flexible(
-                child: Text(
-                  label,
-                  style: _text.c(fg),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.center,
+                  child: Text(
+                    label,
+                    style: _text.c(fg),
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
                 ),
               ),
               if (badge != null) ...[
@@ -168,28 +190,55 @@ class GButton extends StatelessWidget {
             ],
           );
 
-    return Pressable(
-      onTap: disabled ? null : onPressed,
-      enabled: !disabled,
-      scale: 0.975,
-      child: AnimatedContainer(
-        duration: Motion.fast,
-        curve: Motion.enter,
-        height: _height,
-        width: expand ? double.infinity : null,
-        padding: EdgeInsets.symmetric(
-            horizontal: size == GButtonSize.sm ? Gap.md : Gap.xl),
-        decoration: BoxDecoration(
-          color: disabled && gradient != null ? p.inkFaint : bg,
-          gradient: gradient,
-          borderRadius: R.all(_radius),
-          border: border,
-          boxShadow: shadow,
-        ),
-        child: Center(child: content),
-      ),
+    // `expand` means "fill the width you are given", not "demand infinity".
+    // Dropped straight into a Row the width on offer is unbounded, and
+    // forcing it there is a hard crash rather than a layout nudge — so the
+    // button shrink-wraps instead, and the caller gets a button rather than
+    // a red screen.
+    return LayoutBuilder(
+      builder: (context, box) {
+        final fill = expand && box.maxWidth.isFinite;
+        return Pressable(
+          onTap: disabled ? null : onPressed,
+          enabled: !disabled,
+          scale: 0.975,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.enter,
+            height: _height,
+            width: fill ? double.infinity : null,
+            padding: EdgeInsets.symmetric(
+                horizontal: size == GButtonSize.sm ? Gap.md : Gap.xl),
+            decoration: BoxDecoration(
+              color: disabled && gradient != null ? p.inkFaint : bg,
+              gradient: gradient,
+              borderRadius: R.all(_radius),
+              border: border,
+              boxShadow: shadow,
+            ),
+            child: Center(
+              child: loading
+                  ? content
+                  : (fill
+                      ? content
+                      // A shrink-wrapped button must not ask its row for
+                      // infinity either.
+                      : _tight(content)),
+            ),
+          ),
+        );
+      },
     );
   }
+
+  /// The label row, told to take only the width it needs.
+  static Widget _tight(Widget content) => content is Row
+      ? Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: content.mainAxisAlignment,
+          children: content.children,
+        )
+      : content;
 }
 
 /// Compact square icon button used in app bars and card corners.

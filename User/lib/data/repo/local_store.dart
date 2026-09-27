@@ -74,9 +74,34 @@ class LocalStore {
     unawaited(_prefs.setString(_draftKey, jsonEncode(draft)));
   }
 
+  /// What became of each booking request sent to a workshop from this
+  /// phone: `pending` (could not be filed yet — try again) or `sent` (the
+  /// workshop had it). Keyed by booking id.
+  ///
+  /// Device-local on purpose. It is not a fact about the booking, it is a
+  /// fact about this phone's attempt to deliver it, and it is what lets the
+  /// app tell "never arrived" (send it again) apart from "arrived and was
+  /// declined" (tell the customer, and do not put it back on the desk).
+  Map<String, String> readRequestStates() {
+    final raw = _prefs.getString(_requestsKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return Map<String, String>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void writeRequestStates(Map<String, String> states) {
+    unawaited(_prefs.setString(_requestsKey, jsonEncode(states)));
+  }
+
+  static const String _requestsKey = 'garagepro.requests.v1';
+
   Future<void> clear() async {
     _debounce?.cancel();
     await _prefs.remove(_key);
     await _prefs.remove(_draftKey);
+    await _prefs.remove(_requestsKey);
   }
 }

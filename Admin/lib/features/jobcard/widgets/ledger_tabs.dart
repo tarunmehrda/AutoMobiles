@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../core/i18n/strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_type.dart';
@@ -15,6 +16,7 @@ import '../../../core/widgets/pressable.dart';
 import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import '../../../state/admin_state.dart';
+import '../../shared/sms_text.dart';
 
 /// Everything that happened to the card after it was billed: the message
 /// trail, the money collected, and the QR that collects the rest.
@@ -34,10 +36,10 @@ class _LedgerTabsState extends State<LedgerTabs> {
   _Tab _tab = _Tab.sms;
 
   String _label(_Tab t) => switch (t) {
-        _Tab.sms => 'SMS trail',
-        _Tab.transactions => 'Transactions',
-        _Tab.qr => 'Payment QR',
-      };
+    _Tab.sms => 'Sms Details',
+    _Tab.transactions => 'Transactions',
+    _Tab.qr => 'Payment QR',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -79,65 +81,73 @@ class _LedgerTabsState extends State<LedgerTabs> {
 
 // ---------------------------------------------------------------------------
 
-class _SmsTrail extends StatelessWidget {
+/// The card's messages in order. There is no SMS gateway, so one that is
+/// due carries a Send button: it opens the phone's SMS app with the message
+/// typed in and marks it sent. A reminder dated later says when it falls due
+/// and waits — there is nothing to tap about it today.
+class _SmsTrail extends ConsumerWidget {
   const _SmsTrail({required this.card});
 
   final JobCard card;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
     if (card.sms.isEmpty) {
-      return Text('No messages sent yet.',
-          style: AppType.bodyS.c(p.inkFaint));
+      return Text(
+        'No messages sent yet.'.tr,
+        style: AppType.bodyS.c(p.inkFaint),
+      );
     }
     final sorted = [...card.sms]..sort((a, b) => a.at.compareTo(b.at));
+    final now = DateTime.now();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < sorted.length; i++)
           Padding(
             padding: EdgeInsets.only(
-                bottom: i == sorted.length - 1 ? 0 : Gap.md),
+              bottom: i == sorted.length - 1 ? 0 : Gap.md,
+            ),
             child: Row(
               children: [
                 Icon(
-                  switch (sorted[i].state) {
-                    SmsState.delivered => Icons.check_circle_rounded,
-                    SmsState.scheduled => Icons.schedule_rounded,
-                    SmsState.failed => Icons.error_rounded,
-                    SmsState.skipped => Icons.do_not_disturb_on_rounded,
-                  },
+                  smsLook(sorted[i], now: now).icon,
                   size: 17,
-                  color: switch (sorted[i].state) {
-                    SmsState.delivered => p.success,
-                    SmsState.scheduled => p.info,
-                    SmsState.failed => p.danger,
-                    SmsState.skipped => p.inkFaint,
-                  },
+                  color: toneOf(context, smsLook(sorted[i], now: now).tone).fg,
                 ),
                 const SizedBox(width: Gap.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(sorted[i].label,
-                          style: AppType.labelM.c(p.ink)),
-                      Text(Fmt.fullDateTime(sorted[i].at),
-                          style: AppType.bodyS.s(11).c(p.inkMuted)),
+                      Text(sorted[i].label, style: AppType.labelM.c(p.ink)),
+                      Text(
+                        smsIsDue(sorted[i], now: now)
+                            ? '{0} • {1}'.trf([
+                                SmsState.scheduled.label,
+                                Fmt.fullDateTime(sorted[i].at),
+                              ])
+                            : Fmt.fullDateTime(sorted[i].at),
+                        style: AppType.bodyS.s(11).c(p.inkMuted),
+                      ),
                     ],
                   ),
                 ),
-                GPill(
-                  label: sorted[i].state.label,
-                  compact: true,
-                  tone: switch (sorted[i].state) {
-                    SmsState.delivered => GTone.success,
-                    SmsState.scheduled => GTone.info,
-                    SmsState.failed => GTone.danger,
-                    SmsState.skipped => GTone.neutral,
-                  },
-                ),
+                if (smsIsDue(sorted[i], now: now))
+                  GButton.accent(
+                    label: 'Send'.tr,
+                    icon: Icons.send_rounded,
+                    size: GButtonSize.sm,
+                    expand: false,
+                    onPressed: () => sendCardSms(context, ref, card, sorted[i]),
+                  )
+                else
+                  GPill(
+                    label: smsLook(sorted[i], now: now).label,
+                    compact: true,
+                    tone: smsLook(sorted[i], now: now).tone,
+                  ),
               ],
             ),
           ),
@@ -162,29 +172,34 @@ class _Transactions extends ConsumerWidget {
         Row(
           children: [
             Expanded(
-              child: _Stat(
-                  label: 'Billed', value: Fmt.money2(card.total)),
+              child: _Stat(label: 'Billed'.tr, value: Fmt.money2(card.total)),
             ),
             Expanded(
               child: _Stat(
-                label: 'Collected',
+                label: 'Collected'.tr,
                 value: Fmt.money2(card.paid),
                 color: p.success,
               ),
             ),
             Expanded(
               child: _Stat(
-                label: 'Balance',
+                label: 'Balance'.tr,
                 value: Fmt.money2(card.balance),
                 color: card.settled ? p.success : p.danger,
               ),
             ),
           ],
         ),
+        if (card.excess > 0) ...[
+          const SizedBox(height: Gap.md),
+          ExcessNote(amount: card.excess),
+        ],
         const SizedBox(height: Gap.lg),
         if (card.payments.isEmpty)
-          Text('Nothing collected against this card yet.',
-              style: AppType.bodyS.c(p.inkFaint))
+          Text(
+            'Nothing collected against this card yet.'.tr,
+            style: AppType.bodyS.c(p.inkFaint),
+          )
         else
           for (final pay in card.payments)
             Padding(
@@ -198,16 +213,14 @@ class _Transactions extends ConsumerWidget {
                       color: p.successSoft,
                       borderRadius: R.all(R.sm),
                     ),
-                    child:
-                        Icon(pay.mode.icon, size: 16, color: p.success),
+                    child: Icon(pay.mode.icon, size: 16, color: p.success),
                   ),
                   const SizedBox(width: Gap.md),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(pay.mode.label,
-                            style: AppType.labelM.c(p.ink)),
+                        Text(pay.mode.label, style: AppType.labelM.c(p.ink)),
                         Text(
                           pay.note.isEmpty
                               ? Fmt.dateTime(pay.at)
@@ -217,18 +230,41 @@ class _Transactions extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  Text(Fmt.money2(pay.amount),
-                      style: AppType.money.s(15).c(p.ink)),
+                  Text(
+                    Fmt.money2(pay.amount),
+                    style: AppType.money.s(15).c(p.ink),
+                  ),
                   if (!card.isClosed)
                     Pressable(
-                      onTap: () => ref
-                          .read(adminProvider.notifier)
-                          .removePayment(card.id, pay.id),
+                      // One stray tap on a 16px cross used to wipe a payment
+                      // and its cash-book entry with nothing to say so.
+                      onTap: () async {
+                        final ok = await GFeedback.confirm(
+                          context,
+                          title: 'Remove this payment?'.tr,
+                          message:
+                              '{0} {1} comes off this card and out of the cash book.'
+                                  .trf([
+                                    Fmt.money2(pay.amount),
+                                    pay.mode.label,
+                                  ]),
+                          confirmLabel: 'Remove'.tr,
+                          destructive: true,
+                          icon: Icons.delete_outline_rounded,
+                        );
+                        if (!ok) return;
+                        ref
+                            .read(adminProvider.notifier)
+                            .removePayment(card.id, pay.id);
+                      },
                       scale: 0.9,
                       child: Padding(
                         padding: const EdgeInsets.only(left: Gap.sm),
-                        child: Icon(Icons.close_rounded,
-                            size: 16, color: p.inkFaint),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 16,
+                          color: p.inkFaint,
+                        ),
                       ),
                     ),
                 ],
@@ -237,7 +273,7 @@ class _Transactions extends ConsumerWidget {
         if (!card.settled && card.items.isNotEmpty) ...[
           const SizedBox(height: Gap.md),
           GButton(
-            label: 'Record payment',
+            label: 'Record payment'.tr,
             kind: GButtonKind.ghost,
             size: GButtonSize.md,
             icon: Icons.add_rounded,
@@ -245,6 +281,43 @@ class _Transactions extends ConsumerWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// "Return to customer ₹X" — money taken beyond the bill, usually an advance
+/// bigger than the work turned out to be (see `JobCard.excess`).
+///
+/// Shown wherever a card's paid and balance are, because a balance of zero
+/// on its own reads as "all square" when the workshop is in fact holding the
+/// customer's money.
+class ExcessNote extends StatelessWidget {
+  const ExcessNote({super.key, required this.amount});
+
+  final double amount;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.sm),
+      decoration: BoxDecoration(
+        color: p.warningSoft,
+        borderRadius: R.all(R.sm),
+        border: Border.all(color: p.warning.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.undo_rounded, size: 17, color: p.warning),
+          const SizedBox(width: Gap.sm),
+          Expanded(
+            child: Text(
+              'Return to customer {0}'.trf([Fmt.money2(amount)]),
+              style: AppType.labelM.c(p.warning),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -302,9 +375,11 @@ class _PaymentQr extends StatelessWidget {
         children: [
           Icon(Icons.qr_code_2_rounded, size: 36, color: p.inkFaint),
           const SizedBox(height: Gap.md),
-          Text('Add a UPI ID in Settings to show a payment QR here.',
-              textAlign: TextAlign.center,
-              style: AppType.bodyS.c(p.inkMuted)),
+          Text(
+            'Add a UPI ID in Settings to show a payment QR here.'.tr,
+            textAlign: TextAlign.center,
+            style: AppType.bodyS.c(p.inkMuted),
+          ),
         ],
       );
     }
@@ -338,21 +413,22 @@ class _PaymentQr extends StatelessWidget {
           style: AppType.moneyL.c(p.ink),
         ),
         Text(
-          card.balance > 0 ? 'Outstanding balance' : 'Fully settled',
-          style: AppType.bodyS
-              .c(card.balance > 0 ? p.danger : p.success),
+          card.balance > 0 ? 'Outstanding balance'.tr : 'Fully settled'.tr,
+          style: AppType.bodyS.c(card.balance > 0 ? p.danger : p.success),
         ),
         const SizedBox(height: Gap.md),
         Pressable(
           onTap: () async {
             await Clipboard.setData(ClipboardData(text: garage.upiId));
             if (context.mounted) {
-              GFeedback.success(context, 'UPI ID copied');
+              GFeedback.success(context, 'UPI ID copied'.tr);
             }
           },
           child: Container(
             padding: const EdgeInsets.symmetric(
-                horizontal: Gap.md, vertical: Gap.sm),
+              horizontal: Gap.md,
+              vertical: Gap.sm,
+            ),
             decoration: BoxDecoration(
               color: p.surfaceSunken,
               borderRadius: R.all(R.pill),
@@ -381,14 +457,22 @@ Future<void> showCollectSheet(
   WidgetRef ref,
   JobCard card,
 ) async {
-  final controller =
-      TextEditingController(text: card.balance.toStringAsFixed(0));
+  final controller = TextEditingController(
+    text: card.balance.toStringAsFixed(0),
+  );
   var mode = PayMode.cash;
 
   await GFeedback.sheet<void>(
     context,
-    title: 'Record payment',
-    subtitle: '${Fmt.money2(card.balance)} outstanding on ${card.number}',
+    title: 'Record payment'.tr,
+    // Owned by the sheet, not by this function: its future completes
+    // when the sheet starts closing, and the fields go on reading these
+    // all the way through the exit transition.
+    disposing: [controller],
+    subtitle: '{0} outstanding on {1}'.trf([
+      Fmt.money2(card.balance),
+      card.number,
+    ]),
     child: StatefulBuilder(
       builder: (context, setSheet) {
         final p = context.c;
@@ -404,10 +488,12 @@ Future<void> showCollectSheet(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               GField(
-                label: 'Amount',
+                label: 'Amount'.tr,
+                hint: '1500',
                 controller: controller,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textCapitalization: TextCapitalization.none,
                 prefix: Padding(
                   padding: const EdgeInsets.only(right: Gap.sm),
@@ -428,27 +514,32 @@ Future<void> showCollectSheet(
                       child: AnimatedContainer(
                         duration: Motion.fast,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: Gap.md, vertical: Gap.sm),
+                          horizontal: Gap.md,
+                          vertical: Gap.sm,
+                        ),
                         decoration: BoxDecoration(
                           color: m == mode ? p.ink : p.surface,
                           borderRadius: R.all(R.pill),
-                          border: Border.all(
-                              color: m == mode ? p.ink : p.line),
+                          border: Border.all(color: m == mode ? p.ink : p.line),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(m.icon,
-                                size: 15,
-                                color: m == mode
-                                    ? (p.isDark ? p.canvas : Colors.white)
-                                    : p.inkMuted),
+                            Icon(
+                              m.icon,
+                              size: 15,
+                              color: m == mode
+                                  ? (p.isDark ? p.canvas : Colors.white)
+                                  : p.inkMuted,
+                            ),
                             const SizedBox(width: 5),
                             Text(
                               m.label,
-                              style: AppType.labelM.c(m == mode
-                                  ? (p.isDark ? p.canvas : Colors.white)
-                                  : p.inkSoft),
+                              style: AppType.labelM.c(
+                                m == mode
+                                    ? (p.isDark ? p.canvas : Colors.white)
+                                    : p.inkSoft,
+                              ),
                             ),
                           ],
                         ),
@@ -458,22 +549,21 @@ Future<void> showCollectSheet(
               ),
               const SizedBox(height: Gap.xxl),
               GButton.accent(
-                label: 'Record it',
+                label: 'Record it'.tr,
                 onPressed: () {
-                  final amount =
-                      double.tryParse(controller.text.trim()) ?? 0;
+                  final amount = double.tryParse(controller.text.trim()) ?? 0;
                   if (amount <= 0) {
-                    GFeedback.error(context, 'Enter an amount first.');
+                    GFeedback.error(context, 'Enter an amount first.'.tr);
                     return;
                   }
-                  ref.read(adminProvider.notifier).addPayment(
-                        card.id,
-                        amount: amount,
-                        mode: mode,
-                      );
+                  ref
+                      .read(adminProvider.notifier)
+                      .addPayment(card.id, amount: amount, mode: mode);
                   Navigator.of(context).pop();
                   GFeedback.success(
-                      context, '${Fmt.money(amount)} recorded');
+                    context,
+                    '{0} recorded'.trf([Fmt.money(amount)]),
+                  );
                 },
               ),
             ],
@@ -482,5 +572,4 @@ Future<void> showCollectSheet(
       },
     ),
   );
-  controller.dispose();
 }

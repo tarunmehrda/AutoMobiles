@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "239617054387",
+    "project_id": "balaji-64b90",
+    "storage_bucket": "balaji-64b90.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:239617054387:android:05fd0afc051ebf949682c6",
+        "android_client_info": {
+          "package_name": "com.balajiautomobiles.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB90E_fQUmQv24Mre9ppRO3vPMI14gBcWI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:239617054387:android:ae561118dd6ced3f9682c6",
+        "android_client_info": {
+          "package_name": "com.garagepro.garagepro_admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB90E_fQUmQv24Mre9ppRO3vPMI14gBcWI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
@@ -21,37 +22,27 @@ class _Faq {
 const _faqs = [
   _Faq(
     'Why can I not edit a closed job card?',
-    'Closing freezes the bill so the copy the customer holds stays the copy '
-        'on record. Reopen it from the job card menu if something genuinely '
-        'needs changing — reopening also drops any reminders that have not '
-        'gone out yet.',
+    'Closing freezes the bill so the copy the customer holds stays the copy on record. Reopen it from the job card menu if something genuinely needs changing — reopening also drops any reminders that have not gone out yet.',
   ),
   _Faq(
     'Where does stock go when I add a part?',
-    'It comes off the shelf the moment the line lands on a job card, and goes '
-        'back if you remove the line or drop the quantity. Deleting a whole '
-        'job card returns everything on it.',
+    'It comes off the shelf the moment the line lands on a job card, and goes back if you remove the line or drop the quantity. Deleting a whole job card returns everything on it.',
   ),
   _Faq(
     'Why does the mechanic copy have no prices?',
-    'It is the sheet that goes to the floor. It carries the complaint, the '
-        'accessories, the work list and a column to sign off — but never what '
-        'the customer is paying.',
+    'It is the sheet that goes to the floor. It carries the complaint, the accessories, the work list and a column to sign off — but never what the customer is paying.',
   ),
   _Faq(
     'Can I close a card without collecting the money?',
-    'Yes. The balance stays visible under Pending balance until it is '
-        'collected, and the customer keeps showing on that list.',
+    'Yes. The balance stays visible under Pending balance until it is collected, and the customer keeps showing on that list.',
   ),
   _Faq(
     'When do service reminders go out?',
-    'Three go out around the next service date you set when closing the card '
-        '— before, on, and after. The spacing is in Settings.',
+    'Three go out around the next service date you set when closing the card — before, on, and after. The spacing is in Settings.',
   ),
   _Faq(
     'Is my data backed up anywhere?',
-    'Not yet. Everything lives on this device until Supabase credentials are '
-        'configured. Signing out clears it.',
+    'Not yet. Everything lives on this device until Supabase credentials are configured. Signing out clears it.',
   ),
 ];
 
@@ -66,10 +57,12 @@ class SupportPage extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: p.canvas,
-      appBar: const GHeader(title: 'Help and support'),
+      appBar: GHeader(
+        title: 'Help & Support'.tr,
+        subtitle: 'Reach a human, or read the answers'.tr,
+      ),
       body: ListView(
-        padding:
-            const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.h2),
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.h2),
         children: [
           Container(
             padding: const EdgeInsets.all(Gap.xl),
@@ -82,35 +75,38 @@ class SupportPage extends ConsumerWidget {
               children: [
                 const BrandBadge(size: 40, onDark: true),
                 const SizedBox(height: Gap.lg),
-                Text('We answer 9 am to 8 pm, every day',
-                    style: AppType.h1.c(p.onInverse)),
+                Text(
+                  'We answer 9 am to 8 pm, every day'.tr,
+                  style: AppType.h1.c(p.onInverse),
+                ),
                 const SizedBox(height: Gap.xs),
                 Text(
                   garage == null
-                      ? 'Tell us what you were doing when it went wrong.'
-                      : 'Registered to ${garage.name}.',
-                  style: AppType.bodyM
-                      .c(p.onInverse.withValues(alpha: 0.65)),
+                      ? 'Tell us what you were doing when it went wrong.'.tr
+                      : 'Registered to {0}.'.trf([garage.name]),
+                  style: AppType.bodyM.c(p.onInverse.withValues(alpha: 0.65)),
                 ),
                 const SizedBox(height: Gap.lg),
                 Row(
                   children: [
                     Expanded(
                       child: GButton(
-                        label: 'WhatsApp',
+                        label: 'WhatsApp'.tr,
                         kind: GButtonKind.volt,
                         size: GButtonSize.md,
                         icon: Icons.chat_rounded,
-                        onPressed: () => launchWhatsApp(
-                            context, AppConfig.supportWhatsapp),
+                        onPressed: () =>
+                            launchWhatsApp(context, AppConfig.supportWhatsapp),
                       ),
                     ),
                     const SizedBox(width: Gap.md),
                     Expanded(
                       child: GButton(
-                        label: 'Call',
+                        label: 'Call'.tr,
                         kind: GButtonKind.outline,
                         size: GButtonSize.md,
+                        // The card behind it is carbon.
+                        onDark: true,
                         expand: true,
                         icon: Icons.call_rounded,
                         onPressed: () =>
@@ -122,9 +118,8 @@ class SupportPage extends ConsumerWidget {
               ],
             ),
           ),
-
-          const GSectionHeader(
-            title: 'Common questions',
+          GSectionHeader(
+            title: 'Common questions'.tr,
             padding: EdgeInsets.fromLTRB(0, Gap.xxl, 0, Gap.md),
           ),
           for (final faq in _faqs)
@@ -133,35 +128,39 @@ class SupportPage extends ConsumerWidget {
               child: GCard(
                 padding: EdgeInsets.zero,
                 child: Theme(
-                  data: Theme.of(context)
-                      .copyWith(dividerColor: Colors.transparent),
+                  data: Theme.of(
+                    context,
+                  ).copyWith(dividerColor: Colors.transparent),
                   child: ExpansionTile(
                     shape: const Border(),
                     collapsedShape: const Border(),
                     tilePadding: const EdgeInsets.symmetric(
-                        horizontal: Gap.lg, vertical: 2),
+                      horizontal: Gap.lg,
+                      vertical: 2,
+                    ),
                     childrenPadding: const EdgeInsets.fromLTRB(
-                        Gap.lg, 0, Gap.lg, Gap.lg),
+                      Gap.lg,
+                      0,
+                      Gap.lg,
+                      Gap.lg,
+                    ),
                     title: Text(faq.q, style: AppType.labelL.c(p.ink)),
                     iconColor: p.accent,
                     collapsedIconColor: p.inkFaint,
                     children: [
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: Text(faq.a,
-                            style: AppType.bodyM.c(p.inkMuted)),
+                        child: Text(faq.a, style: AppType.bodyM.c(p.inkMuted)),
                       ),
                     ],
                   ),
                 ),
               ),
             ),
-
           const SizedBox(height: Gap.xxl),
           Center(
             child: Text(
-              '${AppConfig.appName} ${AppConfig.version}\n'
-              '${AppConfig.hasSupabase ? 'Syncing to Supabase' : 'Running on this device only'}',
+              "${AppConfig.appName} ${AppConfig.version}\n${AppConfig.hasSupabase ? 'Syncing to Supabase' : 'Running on this device only'}",
               textAlign: TextAlign.center,
               style: AppType.labelS.c(p.inkFaint),
             ),

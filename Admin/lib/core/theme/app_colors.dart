@@ -91,18 +91,18 @@ class AppPalette {
   bool get isDark => brightness == Brightness.dark;
 
   LinearGradient get accentGradient => const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFFFF7A3D), Color(0xFFF2481B)],
-      );
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFFF7A3D), Color(0xFFF2481B)],
+  );
 
   LinearGradient get inverseGradient => LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: isDark
-            ? const [Color(0xFF1C2430), Color(0xFF0E141C)]
-            : const [Color(0xFF1B2430), Color(0xFF090D13)],
-      );
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: isDark
+        ? const [Color(0xFF1C2430), Color(0xFF0E141C)]
+        : const [Color(0xFF1B2430), Color(0xFF090D13)],
+  );
 
   /// Health ramp used by inspection reports and the condition gauge.
   Color health(double score) {

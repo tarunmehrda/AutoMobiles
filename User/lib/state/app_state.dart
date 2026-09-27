@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/config/app_config.dart';
 import '../data/models/entities.dart';
 import '../data/models/enums.dart';
 import '../data/models/workshop.dart';
@@ -13,6 +12,7 @@ import '../data/repo/app_data.dart';
 import '../data/repo/local_store.dart';
 import '../data/seed/catalog_seed.dart';
 import '../data/repo/auth_service.dart';
+import '../data/repo/push_service.dart';
 import '../data/repo/supabase_gateway.dart';
 
 final _rand = Random();
@@ -32,16 +32,90 @@ final appControllerProvider =
 /// Single source of truth for everything the customer owns, plus the business
 /// rules from the product spec (approval gating, estimate versioning,
 /// invoice/payment linkage, immutable history).
-class AppController extends StateNotifier<AppData> {
+class AppController extends StateNotifier<AppData>
+    with WidgetsBindingObserver {
   AppController(this._store, this._remote) : super(_store.read()) {
-    _remote.hydrate(state).then((remote) {
-      if (remote != null && mounted) _set(remote);
-      unawaited(connectWorkshop());
-    });
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(restoreAccount());
+  }
+
+  /// When the app last went and asked the workshop for itself, so reopening
+  /// it repeatedly does not hammer the server.
+  DateTime? _lastResume;
+
+  /// Catch up whenever the customer comes back to the app.
+  ///
+  /// [connectWorkshop] subscribes to the workshop's channel and that is
+  /// supposed to be enough. On this project it is not: the channel joins
+  /// and then delivers nothing (see
+  /// `supabase/17_realtime_diagnose.sql`), so the counter could accept a
+  /// booking, do the work and hand the car back while this app still said
+  /// "Scheduled".
+  ///
+  /// Reopening the app is exactly when somebody wants to know where their
+  /// car is, and it is a natural rate limit — nobody reopens an app twenty
+  /// times a minute. [_resumeGap] covers the case where they do.
+  static const _resumeGap = Duration(seconds: 20);
+
+  // Named `lifecycle`, not `state`: this class already has a `state`.
+  @override
+  // ignore: avoid_renaming_method_parameters
+  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    if (lifecycle != AppLifecycleState.resumed) return;
+    if (!_remote.enabled) return;
+    final last = _lastResume;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < _resumeGap) return;
+    _lastResume = now;
+    unawaited(refreshWorkshop());
+  }
+
+  /// Pulls this account back down from the backend and re-joins the
+  /// workshop's channel.
+  ///
+  /// Called at startup and again whenever a session appears, because signing
+  /// out wipes the device: without the second call, signing back in on an
+  /// existing account looks like a brand new one until the next cold start,
+  /// and the router asks for a profile and a vehicle that are already on the
+  /// server.
+  Future<void> restoreAccount() async {
+    final remote = await _remote.hydrate(state);
+    if (!mounted) return;
+    if (remote != null) _set(remote);
+    // Only now is there a customer to file this phone's push token under.
+    if (_remote.enabled && _remote.userId != null) {
+      unawaited(PushService.instance.start(_remote.registerDevice));
+    }
+    await connectWorkshop();
   }
 
   final LocalStore _store;
   final SupabaseGateway _remote;
+
+  /// Updates from the workshop, as they land, for whatever is on screen to
+  /// announce.
+  ///
+  /// Deliberately a stream and not a slice of state. "The workshop has
+  /// started on your car" is an event: it happens once and is announced
+  /// once, and a rebuild for an unrelated reason must not announce it
+  /// again. The durable half is [AppData.notifications], which the bell
+  /// lists; this is only the moment.
+  final StreamController<AppNotification> _alerts =
+      StreamController<AppNotification>.broadcast();
+
+  Stream<AppNotification> get alerts => _alerts.stream;
+
+  /// False until the first mirror has been absorbed. That one is the app
+  /// catching up on everything that happened while it was shut, not a
+  /// stack of things happening now.
+  bool _alertsPrimed = false;
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_alerts.close());
+    super.dispose();
+  }
 
   void _set(AppData next) {
     state = next;
@@ -55,34 +129,26 @@ class AppController extends StateNotifier<AppData> {
 
   void completeOnboarding() => _set(state.copyWith(onboarded: true));
 
-  /// Mock OTP, used only when no backend is configured. With Supabase on,
-  /// [AuthService] sends and verifies the real code.
-  Future<String?> requestOtp(String phone) async {
-    if (AppConfig.hasSupabase) return null;
-    return (100000 + _rand.nextInt(899999)).toString();
-  }
-
-  /// The offline path: any six digits shown on screen, or `123456`.
-  Future<bool> verifyOtp({
-    required String phone,
-    required String entered,
-    required String? expected,
-  }) async {
-    if (entered != expected && entered != '123456') return false;
-
-    // Returning user: keep everything, just restore the session.
-    if (state.user != null && state.user!.phone == phone) return true;
-
+  /// Start a session without a provider.
+  ///
+  /// There is no OTP anywhere in this app. Sign-in is Google or email and
+  /// password, both of which arrive through [adoptSession]; this is the
+  /// offline equivalent, for a build with no backend configured and for
+  /// tests that need somebody signed in before they can do anything.
+  ///
+  /// A returning phone number keeps everything it had — signing in again is
+  /// not the same as starting over.
+  void signInOffline({required String phone, String name = ''}) {
+    if (state.user != null && state.user!.phone == phone) return;
     _set(state.copyWith(
       user: AppUser(
         id: newId('user'),
-        name: '',
+        name: name,
         phone: phone,
         referralCode: _referralCode(),
         createdAt: DateTime.now(),
       ),
     ));
-    return true;
   }
 
   /// Adopts a real Supabase session into the local snapshot.
@@ -122,8 +188,12 @@ class AppController extends StateNotifier<AppData> {
     ));
   }
 
+  /// [phone] is what the workshop sees on every booking request. A Google
+  /// sign-in never provides one, so without this the counter got a blank
+  /// number on every booking from those customers. Null leaves it alone.
   void saveProfile({
     required String name,
+    String? phone,
     String? email,
     DateTime? dob,
     String? gender,
@@ -131,15 +201,26 @@ class AppController extends StateNotifier<AppData> {
     final u = state.user;
     if (u == null) return;
     _set(state.copyWith(
-      user: u.copyWith(name: name, email: email, dob: dob, gender: gender),
+      user: u.copyWith(
+          name: name, phone: phone, email: email, dob: dob, gender: gender),
     ));
   }
 
+  /// Leaves the account and wipes the device with it.
+  ///
+  /// What survives is only what is not the customer's: whether the tour has
+  /// been seen, and which theme they picked. Both are written back
+  /// immediately, so signing out does not replay the tour on the next launch.
   Future<void> signOut() async {
+    // Anything not yet uploaded goes first: the wipe below is final.
+    await _remote.flush(state);
     await _remote.reset();
     await AuthService.instance.signOut();
     await _store.clear();
-    state = AppData(onboarded: state.onboarded, themeMode: state.themeMode);
+    final next =
+        AppData(onboarded: state.onboarded, themeMode: state.themeMode);
+    state = next;
+    await _store.flush(next);
   }
 
 
@@ -151,7 +232,8 @@ class AppController extends StateNotifier<AppData> {
   /// a line ticked off at the counter shows up here without a refresh.
   ///
   /// Safe to call again: it is how the app recovers after a sign-in, a
-  /// redeemed code, or the network coming back.
+  /// booking that has just put this customer on a workshop's books, or the
+  /// network coming back.
   Future<void> connectWorkshop() async {
     if (!_remote.enabled) return;
     await refreshWorkshop();
@@ -166,30 +248,91 @@ class AppController extends StateNotifier<AppData> {
   /// This is the whole of the link between the two apps. Nothing on this side
   /// moves a booking along by itself any more: a stage, a quote, a bill and a
   /// completion all mean that somebody at the counter did something.
-  Future<void> refreshWorkshop() async {
-    if (!_remote.enabled) return;
+  ///
+  /// True when the workshop answered. False means nothing could be asked —
+  /// offline, or signed out — and the screen should say so rather than sit
+  /// there looking refreshed.
+  Future<bool> refreshWorkshop() async {
+    if (!_remote.enabled) return false;
 
-    final cards = await _remote.workshopCards();
+    final fetched = await _remote.workshopCards();
     final requests = await _remote.myBookingRequests();
-    final shop = await _remote.linkedWorkshop();
-    if (!mounted) return;
+    final shop =
+        await _remote.linkedWorkshop(preferId: _latestWorkshopId(fetched));
+    if (!mounted) return false;
 
-    // An empty answer when we already have cards means the network hiccuped
-    // or the link was withdrawn — either way, do not blank the screen over
-    // it. A real removal arrives as a card that is simply no longer live.
-    final keepCards = cards.isEmpty && state.workshopCards.isNotEmpty;
+    // No answer, or an empty one when we already have cards: the network
+    // hiccuped or the link was withdrawn — either way, do not blank the
+    // screen over it. A real removal arrives as a card that is simply no
+    // longer live.
+    final keepCards = fetched == null ||
+        (fetched.isEmpty && state.workshopCards.isNotEmpty);
 
     var next = state.copyWith(
-      workshopCards: keepCards ? null : cards,
+      workshopCards: keepCards ? null : fetched,
       workshop: shop,
     );
-    if (!keepCards) next = _mirrorWorkshop(next, cards, requests);
+    if (!keepCards) {
+      next = _mirrorWorkshop(next, fetched, requests ?? const {});
+    }
+    // Only on a real answer. A failed call says nothing about what the
+    // workshop did, and must not read as "every request was declined".
+    if (requests != null) {
+      next = _noticeDeclined(next, requests);
+      unawaited(_resendUndelivered(requests));
+    }
     _set(next);
+
+    // Primed by the first completed refresh, not by the first one that
+    // found something. [_mirrorWorkshop] returns early when nothing has
+    // moved, which on a launch with no news is the usual case -- so
+    // priming in there meant the flag was still false when the workshop
+    // finally did something, and the one update worth announcing was
+    // swallowed as "the backlog".
+    _alertsPrimed = true;
+    return fetched != null;
+  }
+
+  /// The workshop this customer dealt with most recently: the newest job
+  /// card or booking that names one. That is the workshop Home, the help
+  /// page and the booking cards should be talking about.
+  String? _latestWorkshopId(List<WorkshopCard>? cards) {
+    DateTime? newest;
+    String? id;
+    for (final c in cards ?? state.workshopCards) {
+      if (c.garageId.isEmpty) continue;
+      if (newest == null || c.openedAt.isAfter(newest)) {
+        newest = c.openedAt;
+        id = c.garageId;
+      }
+    }
+    for (final b in state.bookings) {
+      if (b.garageId.isEmpty) continue;
+      if (newest == null || b.createdAt.isAfter(newest)) {
+        newest = b.createdAt;
+        id = b.garageId;
+      }
+    }
+    return id;
   }
 
   // ---------------------------------------------------------------------
   // Mirroring the workshop onto the customer's bookings
   // ---------------------------------------------------------------------
+
+  /// Applies a set of job cards as though they had just arrived from the
+  /// workshop. [refreshWorkshop] is the only caller in the app; this exists
+  /// so the connection can be tested without a live Supabase behind it.
+  @visibleForTesting
+  void applyWorkshop(
+    List<WorkshopCard> cards, {
+    Map<String, Map<String, dynamic>> requests = const {},
+    Workshop? shop,
+  }) =>
+      _set(_mirrorWorkshop(
+          state.copyWith(workshopCards: cards, workshop: shop),
+          cards,
+          requests));
 
   /// Restates every booking the workshop has turned into a job card from that
   /// card: what stage it is at, what is being charged, and the bill once
@@ -287,6 +430,21 @@ class AppController extends StateNotifier<AppData> {
     final known = {for (final n in data.notifications) n.id};
     final added = fresh.where((n) => !known.contains(n.id)).toList();
 
+    // Say so, out loud, once. Everything here came off the workshop's own
+    // job card -- the counter accepted the booking, started the work,
+    // finished it -- so it is news to the customer by definition, and it
+    // arrived while they were looking at something else. Without this the
+    // app changed quietly underneath them and the only way to find out was
+    // to go and check the bookings screen on the off chance.
+    //
+    // Oldest first, so a burst reads in the order it happened, and never
+    // on the first pass: a cold start mirrors the whole history at once.
+    if (_alertsPrimed && !_alerts.isClosed) {
+      for (final n in added.reversed) {
+        _alerts.add(n);
+      }
+    }
+
     return data.copyWith(
       bookings: bookings,
       estimates: estimates,
@@ -355,6 +513,20 @@ class AppController extends StateNotifier<AppData> {
         accessories: c.accessories,
         workNote: c.workNote,
         mechanic: c.mechanic.isEmpty ? null : c.mechanic,
+        // The damage the counter logged at check-in. Never carried across
+        // before, so the customer's record said nothing was marked.
+        marks: [
+          for (final d in c.dents)
+            HandoverMark(
+              id: d.id,
+              dx: d.dx,
+              dy: d.dy,
+              kind: MarkKindX.parse(d.severity),
+              note: [d.label, d.note]
+                  .where((s) => s.trim().isNotEmpty)
+                  .join(' — '),
+            ),
+        ],
         photos: c.photos,
         nextServiceAt: c.nextServiceAt,
         nextServiceKm: c.nextServiceKm,
@@ -440,15 +612,6 @@ class AppController extends StateNotifier<AppData> {
 
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
-
-  /// Redeems the six-digit code the workshop hands over. Returns null when
-  /// it worked, or a sentence to put in front of the person.
-  Future<String?> redeemWorkshopCode(String code) async {
-    final problem = await _remote.redeemWorkshopCode(code);
-    if (problem != null) return problem;
-    await connectWorkshop();
-    return null;
-  }
 
   String _referralCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -551,6 +714,8 @@ class AppController extends StateNotifier<AppData> {
     required List<CartLine> lines,
     required ServiceMode mode,
     required DateTime slot,
+    String garageId = '',
+    String workshopName = '',
     String? addressId,
     String? couponCode,
     int discount = 0,
@@ -562,6 +727,7 @@ class AppController extends StateNotifier<AppData> {
       id: id,
       code: _bookingCode(now),
       vehicleId: vehicleId,
+      garageId: garageId,
       lines: lines,
       mode: mode,
       slot: slot,
@@ -577,9 +743,12 @@ class AppController extends StateNotifier<AppData> {
         TimelineEvent(
           stage: JobStage.confirmed,
           at: now,
-          note: state.workshop.isLinked
-              ? 'Slot reserved at ${state.workshop.name}'
-              : 'Slot reserved',
+          note: switch (workshopName.isNotEmpty
+              ? workshopName
+              : (state.workshop.isLinked ? state.workshop.name : '')) {
+            '' => 'Slot reserved',
+            final where => 'Slot reserved at $where',
+          },
         ),
       ],
     );
@@ -599,47 +768,193 @@ class AppController extends StateNotifier<AppData> {
         ...state.notifications,
       ],
     ));
-    unawaited(_tellTheWorkshop(booking));
     return booking;
   }
 
-  /// Puts the booking on the linked workshop's front desk, so the counter
-  /// sees it arrive rather than hearing about it on the phone.
+  /// Puts the booking on the workshop's front desk, so the counter sees it
+  /// arrive rather than hearing about it on the phone.
   ///
-  /// Fire-and-forget on purpose: the booking is already confirmed here, and
-  /// a customer who is not linked to any workshop simply has nowhere to send
-  /// it. Where several workshops are linked, the request goes to the one
-  /// that last had the car.
-  Future<void> _tellTheWorkshop(Booking booking) async {
-    final links = await _remote.linkedWorkshops();
-    if (links.isEmpty) return;
+  /// The workshop is the one the customer picked out of the directory, and
+  /// that is the whole of the qualification now. It used to ask
+  /// `linkedWorkshops()` first and give up when the list came back empty —
+  /// which it did for every customer who had not been handed a code at the
+  /// counter. So the front desk stayed empty for exactly the people the
+  /// front desk is for, and the booking they had just confirmed on screen
+  /// went nowhere. Inserting the row is itself what links the two: from
+  /// then on `deals_with_garage()` is true and the workshop's page, menu
+  /// and job cards open up.
+  ///
+  /// Returns whether the workshop has it, and the booking screen says which.
+  /// It used to be fire-and-forget behind a "sent to the workshop" toast
+  /// shown before anything was sent, so a booking made offline read as
+  /// delivered and never arrived. The booking is still kept on the phone
+  /// either way; one that could not be filed is filed again on the next
+  /// refresh (see [_resendUndelivered]).
+  Future<bool> tellTheWorkshop(Booking booking) async {
+    // A booking with no workshop on it predates the directory. There is
+    // nowhere to send it, and inventing a destination would be worse.
+    if (booking.garageId.isEmpty) return false;
 
-    final recent = state.workshopCards.isEmpty
-        ? null
-        : state.workshopCards.first.garageId;
-    final link = links.firstWhere(
-      (l) => l['garage_id'] == recent,
-      orElse: () => links.first,
-    );
-    final gid = link['garage_id'];
-    if (gid == null || gid.isEmpty) return;
+    // Bounded, so a dead network cannot hold the confirm button forever.
+    // The send carries on behind the timeout and records how it ended.
+    final sent = await _sendToWorkshop(booking)
+        .timeout(const Duration(seconds: 12), onTimeout: () => false);
 
-    final v = state.vehicleById(booking.vehicleId);
-    await _remote.requestWorkshopBooking(
-      garageId: gid,
-      id: 'req-${booking.id}',
-      name: state.user?.name ?? '',
-      phone: state.user?.phone ?? '',
-      at: booking.slot,
-      regNo: v?.regNumber ?? '',
-      vehicle: v == null ? '' : '${v.brand} ${v.model}',
-      note: booking.lines.map((e) => e.name).join(', '),
-    );
+    // That row is the link. `deals_with_garage()` reads `garage_bookings`,
+    // so from this moment the workshop's letterhead, its menu and any job
+    // card it opens for this customer are all readable — but only to a
+    // session that goes and looks. This is where redeeming a code used to
+    // reconnect, and the booking has taken that job along with the rest.
+    if (sent && mounted) unawaited(connectWorkshop());
+    return sent;
   }
 
-  void rescheduleBooking(String id, DateTime slot) {
+  /// Booking ids with a send in flight, so a resend on refresh cannot race
+  /// the send from the booking screen.
+  final Set<String> _sending = {};
+
+  /// Files one request, with the car as the customer described it, and
+  /// records on this phone whether it landed. Never reconnects: that is
+  /// [tellTheWorkshop]'s job, and doing it here would loop — a refresh
+  /// resends, the resend reconnects, the reconnect refreshes.
+  Future<bool> _sendToWorkshop(Booking booking) async {
+    if (!_sending.add(booking.id)) return false;
+    try {
+      final v = state.vehicleById(booking.vehicleId);
+      final sent = await _remote.requestWorkshopBooking(
+        garageId: booking.garageId,
+        id: 'req-${booking.id}',
+        name: state.user?.name ?? '',
+        phone: state.user?.phone ?? '',
+        at: booking.slot,
+        regNo: v?.regNumber ?? '',
+        vehicle: v == null ? '' : '${v.brand} ${v.model}',
+        note: booking.lines.map((e) => e.name).join(', '),
+        brand: v?.brand ?? '',
+        model: v?.model ?? '',
+        variant: v?.variant ?? '',
+        fuel: v?.fuel.name ?? '',
+        transmission: v?.transmission.name ?? '',
+        year: v == null || v.year <= 0 ? null : v.year,
+        odometerKm: v == null || v.odometerKm <= 0 ? null : v.odometerKm,
+        mode: booking.mode.name,
+        customerNote: booking.notes ?? '',
+      );
+      _setRequestState(booking.id, sent ? 'sent' : 'pending');
+      return sent;
+    } finally {
+      _sending.remove(booking.id);
+    }
+  }
+
+  void _setRequestState(String bookingId, String? value) {
+    final states = _store.readRequestStates();
+    if (value == null) {
+      if (states.remove(bookingId) == null) return;
+    } else {
+      if (states[bookingId] == value) return;
+      states[bookingId] = value;
+    }
+    _store.writeRequestStates(states);
+  }
+
+  /// Files again every request this phone could not deliver, while its slot
+  /// is still worth keeping. [requests] is what the workshop actually holds:
+  /// one that turns out to be there after all is simply marked delivered.
+  Future<void> _resendUndelivered(
+    Map<String, Map<String, dynamic>> requests,
+  ) async {
+    final states = _store.readRequestStates();
+    final cutoff = DateTime.now().subtract(const Duration(hours: 12));
+    for (final b in state.bookings) {
+      if (states[b.id] != 'pending') continue;
+      if (requests.containsKey('req-${b.id}')) {
+        _setRequestState(b.id, 'sent');
+        continue;
+      }
+      if (b.status != BookingStatus.upcoming || b.slot.isBefore(cutoff)) {
+        // Cancelled on the phone, or a slot long gone: nothing to deliver.
+        _setRequestState(b.id, null);
+        continue;
+      }
+      if (!mounted) return;
+      await _sendToWorkshop(b);
+    }
+  }
+
+  /// A request this phone delivered that is no longer on the workshop's desk,
+  /// with no job card made from it, was declined at the counter — declining
+  /// deletes the row. The customer used to go on seeing "Confirmed" for a
+  /// visit nobody was expecting. Now they are told, and the booking stops
+  /// counting as upcoming.
+  ///
+  /// Only for requests known to have arrived: one this phone never managed
+  /// to file is missing for a different reason, and is [_resendUndelivered]'s.
+  AppData _noticeDeclined(
+    AppData data,
+    Map<String, Map<String, dynamic>> requests,
+  ) {
+    final states = _store.readRequestStates();
+    var next = data;
+    for (final b in data.bookings) {
+      if (states[b.id] != 'sent') continue;
+      if (requests.containsKey('req-${b.id}')) continue;
+      _setRequestState(b.id, null);
+      if (b.status != BookingStatus.upcoming || b.jobCard != null) continue;
+
+      const reason = 'Declined by the workshop';
+      next = _writeBooking(
+        next,
+        b.copyWith(
+          status: BookingStatus.cancelled,
+          cancelReason: reason,
+          timeline: [
+            ...b.timeline,
+            TimelineEvent(stage: b.stage, at: DateTime.now(), note: reason),
+          ],
+        ),
+      ).copyWith(notifications: [
+        AppNotification(
+          id: newId('n'),
+          kind: NotifyKind.booking,
+          title: 'Booking declined',
+          body: '${b.code} was declined by the workshop. '
+              'Book another slot or call them.',
+          at: DateTime.now(),
+          bookingId: b.id,
+        ),
+        ...next.notifications,
+      ]);
+    }
+    return next;
+  }
+
+  /// Moves a booking to a new slot — on the phone and on the workshop's
+  /// front desk.
+  ///
+  /// It used to move only the phone's copy, so the counter still expected
+  /// the car at the old time. A request this phone has not managed to
+  /// deliver yet needs nothing upstream: the resend reads the new slot.
+  /// Returns an error sentence, or null when it has moved.
+  Future<String?> rescheduleBooking(String id, DateTime slot) async {
+    final before = state.bookingById(id);
+    if (before == null) return null;
+    if (before.jobCard != null) {
+      return 'The workshop has already started on this booking. '
+          'Call them to change the time.';
+    }
+    final undelivered = _store.readRequestStates()[id] == 'pending';
+    if (before.garageId.isNotEmpty && _remote.enabled && !undelivered) {
+      final moved =
+          await _remote.rescheduleWorkshopBooking('req-${before.id}', slot);
+      if (!moved) {
+        return 'Could not move it with the workshop. Check your connection, '
+            'or call them if they have already accepted it.';
+      }
+    }
+    if (!mounted) return null;
     final b = state.bookingById(id);
-    if (b == null) return;
+    if (b == null) return null;
     _replaceBooking(b.copyWith(
       slot: slot,
       timeline: [
@@ -655,11 +970,92 @@ class AppController extends StateNotifier<AppData> {
       body: '${b.code} moved to ${_dayLabel(slot)} at ${_timeLabel(slot)}.',
       kind: NotifyKind.booking,
     ));
+    return null;
   }
 
-  void cancelBooking(String id, String reason) {
+  /// Rates a finished job card, 1 to 5 stars, with an optional comment. It
+  /// lands in the workshop's Feedback screen and rings their bell
+  /// (`notify_new_review`). Rating again changes the first rating rather
+  /// than adding a second. Returns an error sentence, or null.
+  Future<String?> reviewCard(
+    WorkshopCard card, {
+    required int stars,
+    String comment = '',
+  }) async {
+    if (!card.isClosed) {
+      return 'You can rate the service once the workshop has closed the '
+          'job card.';
+    }
+    final error = await _remote.saveReview(
+      garageId: card.garageId,
+      jobCardId: card.id,
+      stars: stars,
+      comment: comment,
+    );
+    if (error != null || !mounted) return error;
+
+    // The booking this card came from carries the rating too, so the
+    // booking history shows it without another round trip.
+    for (final b in state.bookings) {
+      if (b.jobCard?.number == card.number &&
+          b.garageId == card.garageId) {
+        rateBooking(b.id, stars.toDouble(), comment.trim().isEmpty ? null : comment.trim());
+      }
+    }
+    await refreshWorkshop();
+    return null;
+  }
+
+  /// Deletes the account for good — the sign-in and everything the
+  /// customer owns on the server — and then wipes this phone.
+  ///
+  /// It used to be a sign-out with a scarier label: the account and every
+  /// car, booking and invoice on it came straight back at the next sign-in.
+  /// Returns an error sentence, or null once it is gone.
+  Future<String?> deleteAccount() async {
+    if (_remote.enabled && AuthService.instance.userId != null) {
+      final error = await _remote.deleteAccount();
+      if (error != null) return error;
+    }
+    await _remote.reset();
+    await AuthService.instance.signOut();
+    await _store.clear();
+    final next =
+        AppData(onboarded: state.onboarded, themeMode: state.themeMode);
+    state = next;
+    await _store.flush(next);
+    return null;
+  }
+
+  /// Calls a booking off — on the phone and on the workshop's front desk.
+  ///
+  /// It used to change only the phone's copy (and nothing called it), so the
+  /// counter kept the slot and could open a job card for a visit the
+  /// customer had already cancelled. The request is withdrawn first. Once
+  /// the counter has accepted it the database refuses, because calling off
+  /// work already under way is a phone call, not a button.
+  ///
+  /// Returns an error sentence, or null when it is cancelled.
+  Future<String?> cancelBooking(String id, String reason) async {
+    final before = state.bookingById(id);
+    if (before == null) return null;
+    if (before.jobCard != null) {
+      return 'The workshop has already started on this booking. '
+          'Call them to cancel.';
+    }
+    if (before.garageId.isNotEmpty && _remote.enabled) {
+      final gone = await _remote.withdrawWorkshopBooking('req-${before.id}');
+      if (!gone) {
+        return 'Could not cancel with the workshop. Check your connection, '
+            'or call them if they have already accepted it.';
+      }
+    }
+    _setRequestState(id, null);
+    if (!mounted) return null;
+
+    // Re-read: the await above is long enough for a refresh to have landed.
     final b = state.bookingById(id);
-    if (b == null) return;
+    if (b == null) return null;
     // Cancelled appointments keep their historical record.
     _replaceBooking(
       b.copyWith(
@@ -677,6 +1073,7 @@ class AppController extends StateNotifier<AppData> {
         kind: NotifyKind.booking,
       ),
     );
+    return null;
   }
 
   void addBookingNote(String id, String note) {
@@ -685,21 +1082,23 @@ class AppController extends StateNotifier<AppData> {
     _replaceBooking(b.copyWith(notes: note));
   }
 
-  List<JobStage> _stageFlow(ServiceMode mode) => [
-        JobStage.confirmed,
-        if (mode == ServiceMode.pickup) JobStage.pickupAssigned,
-        JobStage.received,
-        JobStage.inspectionStarted,
-        JobStage.inspectionComplete,
-        JobStage.estimateSent,
-        JobStage.awaitingApproval,
-        JobStage.repairInProgress,
-        JobStage.qualityCheck,
-        JobStage.readyForDelivery,
-        JobStage.delivered,
-      ];
+  /// The steps the tracker draws, which are exactly the steps a workshop
+  /// can put a car through: the customer books it, the counter opens a card,
+  /// prices it, works it, finishes it and hands it back.
+  ///
+  /// It used to run to eleven, most of them stages nothing could ever reach.
+  /// A tracker that stops four rungs from the top on every single job reads
+  /// as broken, so the ones the console cannot report are not drawn.
+  static const List<JobStage> _stageFlow = [
+    JobStage.confirmed,
+    JobStage.received,
+    JobStage.estimateSent,
+    JobStage.repairInProgress,
+    JobStage.readyForDelivery,
+    JobStage.delivered,
+  ];
 
-  List<JobStage> stageFlowFor(Booking b) => _stageFlow(b.mode);
+  List<JobStage> stageFlowFor(Booking b) => _stageFlow;
 
   // ---------------------------------------------------------------------
   // Estimates
@@ -734,8 +1133,7 @@ class AppController extends StateNotifier<AppData> {
     versions[versions.length - 1] = approved;
 
     final now = DateTime.now();
-    final nextStage =
-        approvedIds.isEmpty ? JobStage.qualityCheck : JobStage.repairInProgress;
+    const nextStage = JobStage.repairInProgress;
 
     final updatedBooking = b.copyWith(
       stage: nextStage,

@@ -6,7 +6,6 @@ import '../../core/anim/entrance.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
-import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/g_button.dart';
 import '../../state/app_state.dart';
 
@@ -76,7 +75,6 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
               padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.lg, 0),
               child: Row(
                 children: [
-                  const BrandLogo(width: 136, onDark: false),
                   const Spacer(),
                   if (_index < _slides.length - 1)
                     GButton.ghost(

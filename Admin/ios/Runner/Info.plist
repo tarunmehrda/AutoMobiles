@@ -66,6 +66,29 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Shown verbatim in the system dialogs raised by the first-run
+	     permission screen. iOS has no SMS permission, so that card is left
+	     out on this platform. -->
+	<key>NSContactsUsageDescription</key>
+	<string>So a customer already in your phone can be added to a job card without retyping their number.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>So your workshop address fills itself in, customers can find you from your online garage page, and the team can punch in only when they are actually at the workshop.</string>
+	<!-- Attendance is checked against a circle a few metres across, and
+	     "Precise: off" deliberately rounds the position to a few kilometres
+	     — which would refuse everybody. This is the purpose key
+	     `AttendanceGate` passes to requestTemporaryFullAccuracy, so somebody
+	     who shared only an approximate location can grant a precise one for
+	     the punch without changing the setting for good. Without this
+	     dictionary iOS ignores the request and the refusal is permanent. -->
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>attendance</key>
+		<string>Marking attendance needs your exact position, because the workshop is only a few metres across.</string>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>So you can photograph damage at handover and scan a part number instead of typing it.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>So you can attach existing photos of a vehicle or a part to a job card.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

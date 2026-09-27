@@ -21,6 +21,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = true,
     this.badge,
+    this.onDark = false,
   });
 
   const GButton.accent({
@@ -33,6 +34,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = true,
     this.badge,
+    this.onDark = false,
   }) : kind = GButtonKind.accent;
 
   const GButton.outline({
@@ -45,6 +47,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = false,
     this.badge,
+    this.onDark = false,
   }) : kind = GButtonKind.outline;
 
   const GButton.ghost({
@@ -57,6 +60,7 @@ class GButton extends StatelessWidget {
     this.loading = false,
     this.expand = false,
     this.badge,
+    this.onDark = false,
   }) : kind = GButtonKind.ghost;
 
   final String label;
@@ -71,23 +75,30 @@ class GButton extends StatelessWidget {
   /// Optional trailing pill (e.g. a price on the sticky CTA).
   final String? badge;
 
-  double get _height => switch (size) {
-        GButtonSize.sm => 38,
-        GButtonSize.md => 46,
-        GButtonSize.lg => 56,
-      };
+  /// Set on an inverse surface. Outline and ghost buttons take their ink from
+  /// the page, and on a dark card that ink is dark — which is how a Call
+  /// button ends up invisible.
+  final bool onDark;
 
-  double get _radius => switch (size) {
-        GButtonSize.sm => R.sm,
-        GButtonSize.md => R.md,
-        GButtonSize.lg => R.lg,
-      };
+  double get _height => switch (size) {
+    GButtonSize.sm => 38,
+    GButtonSize.md => 46,
+    GButtonSize.lg => 56,
+  };
+
+  /// Pills at every size.
+  ///
+  /// The three sizes used to step 12 / 16 / 20, which meant a Back at md and a
+  /// Next at lg sitting in the same row had visibly different corners. A
+  /// single radius that is larger than any of the heights removes the choice
+  /// and the mismatch with it.
+  double get _radius => R.pill;
 
   TextStyle get _text => switch (size) {
-        GButtonSize.sm => AppType.labelM,
-        GButtonSize.md => AppType.labelL,
-        GButtonSize.lg => AppType.labelL.s(15.5),
-      };
+    GButtonSize.sm => AppType.labelM,
+    GButtonSize.md => AppType.labelL,
+    GButtonSize.lg => AppType.labelL.s(15.5),
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -112,11 +123,14 @@ class GButton extends StatelessWidget {
         shadow = disabled ? null : Shadows.accent(p);
       case GButtonKind.outline:
         bg = Colors.transparent;
-        fg = p.ink;
-        border = Border.all(color: p.line, width: 1.4);
+        fg = onDark ? p.onInverse : p.ink;
+        border = Border.all(
+          color: onDark ? p.onInverse.withValues(alpha: 0.35) : p.line,
+          width: 1.4,
+        );
       case GButtonKind.ghost:
-        bg = p.surfaceSunken;
-        fg = p.ink;
+        bg = onDark ? p.onInverse.withValues(alpha: 0.12) : p.surfaceSunken;
+        fg = onDark ? p.onInverse : p.ink;
       case GButtonKind.danger:
         bg = p.dangerSoft;
         fg = p.danger;
@@ -130,7 +144,9 @@ class GButton extends StatelessWidget {
             height: 20,
             width: 20,
             child: CircularProgressIndicator(
-                strokeWidth: 2.2, color: fg.withValues(alpha: 0.9)),
+              strokeWidth: 2.2,
+              color: fg.withValues(alpha: 0.9),
+            ),
           )
         : Row(
             mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
@@ -140,19 +156,28 @@ class GButton extends StatelessWidget {
                 Icon(icon, size: size == GButtonSize.sm ? 16 : 19, color: fg),
                 const SizedBox(width: Gap.sm),
               ],
+              // A button label is never shortened to "Update or …". If the
+              // words do not fit, the type gives way instead — the whole
+              // label always stays readable.
               Flexible(
-                child: Text(
-                  label,
-                  style: _text.c(fg),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.center,
+                  child: Text(
+                    label,
+                    style: _text.c(fg),
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
                 ),
               ),
               if (badge != null) ...[
                 const SizedBox(width: Gap.md),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: Gap.sm, vertical: 3),
+                    horizontal: Gap.sm,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: fg.withValues(alpha: 0.16),
                     borderRadius: R.all(R.xs),
@@ -162,13 +187,16 @@ class GButton extends StatelessWidget {
               ],
               if (trailingIcon != null) ...[
                 const SizedBox(width: Gap.sm),
-                Icon(trailingIcon,
-                    size: size == GButtonSize.sm ? 16 : 19, color: fg),
+                Icon(
+                  trailingIcon,
+                  size: size == GButtonSize.sm ? 16 : 19,
+                  color: fg,
+                ),
               ],
             ],
           );
 
-    return Pressable(
+    Widget body(bool fill) => Pressable(
       onTap: disabled ? null : onPressed,
       enabled: !disabled,
       scale: 0.975,
@@ -176,9 +204,10 @@ class GButton extends StatelessWidget {
         duration: Motion.fast,
         curve: Motion.enter,
         height: _height,
-        width: expand ? double.infinity : null,
+        width: fill ? double.infinity : null,
         padding: EdgeInsets.symmetric(
-            horizontal: size == GButtonSize.sm ? Gap.md : Gap.xl),
+          horizontal: size == GButtonSize.sm ? Gap.md : Gap.xl,
+        ),
         decoration: BoxDecoration(
           color: disabled && gradient != null ? p.inkFaint : bg,
           gradient: gradient,
@@ -186,10 +215,44 @@ class GButton extends StatelessWidget {
           border: border,
           boxShadow: shadow,
         ),
-        child: Center(child: content),
+        child: Center(
+          child: loading
+              ? content
+              : (fill
+                    ? content
+                    // A shrink-wrapped button must not ask its row for
+                    // infinity either.
+                    : _tight(content)),
+        ),
       ),
     );
+
+    // A button that was never going to stretch is built straight, with no
+    // [LayoutBuilder] over it. That matters beyond one frame saved: a
+    // LayoutBuilder cannot answer an intrinsic measurement, and anything that
+    // measures its children before laying them out — `AlertDialog.actions`,
+    // `OverflowBar`, `IntrinsicWidth`, a `Table` — asks for one. Wrapped, the
+    // button threw on layout there and took the whole dialog down with it.
+    if (!expand) return body(false);
+
+    // `expand` means "fill the width you are given", not "demand infinity".
+    // Dropped straight into a Row the width on offer is unbounded, and
+    // forcing it there is a hard crash rather than a layout nudge — so the
+    // button shrink-wraps instead, and the caller gets a button rather than
+    // a red screen.
+    return LayoutBuilder(
+      builder: (context, box) => body(box.maxWidth.isFinite),
+    );
   }
+
+  /// The label row, told to take only the width it needs.
+  static Widget _tight(Widget content) => content is Row
+      ? Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: content.mainAxisAlignment,
+          children: content.children,
+        )
+      : content;
 }
 
 /// Compact square icon button used in app bars and card corners.
@@ -226,7 +289,7 @@ class GIconButton extends StatelessWidget {
         width: size,
         decoration: BoxDecoration(
           color: background ?? p.surface,
-          borderRadius: R.all(R.md),
+          shape: BoxShape.circle,
           border: bordered ? Border.all(color: p.line) : null,
         ),
         child: Stack(
@@ -240,11 +303,17 @@ class GIconButton extends StatelessWidget {
                 right: size * 0.16,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
-                  constraints: const BoxConstraints(minWidth: 15, minHeight: 15),
+                  constraints: const BoxConstraints(
+                    minWidth: 15,
+                    minHeight: 15,
+                  ),
                   decoration: BoxDecoration(
                     color: p.accent,
                     borderRadius: R.all(R.pill),
-                    border: Border.all(color: background ?? p.surface, width: 2),
+                    border: Border.all(
+                      color: background ?? p.surface,
+                      width: 2,
+                    ),
                   ),
                   child: Center(
                     child: Text(

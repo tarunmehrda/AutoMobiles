@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/anim/entrance.dart';
+import '../../../core/i18n/strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_type.dart';
@@ -13,6 +14,7 @@ import '../../../core/widgets/g_badge.dart';
 import '../../../core/widgets/g_button.dart';
 import '../../../core/widgets/g_feedback.dart';
 import '../../../core/widgets/g_field.dart';
+import '../../../core/widgets/g_art.dart';
 import '../../../core/widgets/g_state.dart';
 import '../../../core/widgets/g_surface.dart';
 import '../../../core/widgets/pressable.dart';
@@ -20,6 +22,7 @@ import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import '../../../state/admin_state.dart';
 import '../../../state/providers.dart';
+import '../widgets/ledger_tabs.dart';
 
 /// The bill, built one line at a time. Three tabs because a workshop thinks
 /// in three buckets — what was done, what was fitted, what was poured in —
@@ -58,11 +61,15 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
     if (card == null) {
       return Scaffold(
         backgroundColor: p.canvas,
-        appBar: const GHeader(title: 'Items'),
-        body: const GEmptyState(
+        appBar: GHeader(
+          title: 'Items'.tr,
+          subtitle: 'Parts, oil and labour on this card'.tr,
+        ),
+        body: GEmptyState(
           icon: Icons.remove_shopping_cart_rounded,
-          title: 'Job card not found',
-          message: 'Nothing to bill against.',
+          title: 'Job card not found'.tr,
+          art: Art.searching,
+          message: 'Nothing to bill against.'.tr,
         ),
       );
     }
@@ -75,16 +82,24 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(
-        title: 'Items',
-        subtitle: '${card.number} • ${card.items.length} line'
-            '${card.items.length == 1 ? '' : 's'}',
+        title: 'Items'.tr,
+        subtitle: Tr.plural(
+          card.items.length,
+          '{0} • {1} line',
+          '{0} • {1} lines',
+          [card.number, card.items.length],
+        ),
       ),
       body: Column(
         children: [
           // --- the three buckets, each showing its own running total ----
           Padding(
             padding: const EdgeInsets.fromLTRB(
-                Gap.page, Gap.sm, Gap.page, Gap.md),
+              Gap.page,
+              Gap.sm,
+              Gap.page,
+              Gap.md,
+            ),
             child: Row(
               children: [
                 for (var i = 0; i < LineKind.values.length; i++) ...[
@@ -116,7 +131,9 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
               child: GSearchBar(
-                hint: 'Search ${_kind.label.toLowerCase()} or type a new one',
+                hint: 'Search {0} or type a new one'.trf([
+                  _kind.label.toLowerCase(),
+                ]),
                 controller: _search,
                 onChanged: (v) => setState(() => _query = v),
                 onClear: _query.isEmpty ? null : _clearSearch,
@@ -125,8 +142,11 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
                   scale: 0.9,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-                    child: Icon(Icons.add_circle_rounded,
-                        size: 22, color: p.accent),
+                    child: Icon(
+                      Icons.add_circle_rounded,
+                      size: 22,
+                      color: p.accent,
+                    ),
                   ),
                 ),
               ),
@@ -134,8 +154,7 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
 
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                  Gap.page, 0, Gap.page, Gap.h2),
+              padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.h2),
               children: [
                 // --- master suggestions while typing --------------------
                 if (!locked && _query.trim().isNotEmpty) ...[
@@ -144,7 +163,9 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
                     query: _query.trim(),
                     kind: _kind,
                     onPick: (m) {
-                      ref.read(adminProvider.notifier).addItem(
+                      ref
+                          .read(adminProvider.notifier)
+                          .addItem(
                             card.id,
                             kind: _kind,
                             name: m.name,
@@ -154,8 +175,8 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
                           );
                       _clearSearch();
                     },
-                    onCreate: () => _openEditor(card, null,
-                        prefillName: _query.trim()),
+                    onCreate: () =>
+                        _openEditor(card, null, prefillName: _query.trim()),
                   ),
                   const SizedBox(height: Gap.lg),
                 ],
@@ -165,12 +186,14 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
                   GEmptyState(
                     compact: true,
                     icon: _kind.icon,
-                    title: 'No ${_kind.label.toLowerCase()} yet',
+                    title: 'No {0} yet'.trf([_kind.label.toLowerCase()]),
                     message: locked
-                        ? 'This card is closed.'
-                        : 'Search above to pull one from the master list, or '
-                            'add a one-off line.',
-                    actionLabel: locked ? null : 'Add ${_kind.singular}',
+                        ? 'This card is closed.'.tr
+                        : 'Search above to pull one from the master list, or add a one-off line.'
+                              .tr,
+                    actionLabel: locked
+                        ? null
+                        : 'Add {0}'.trf([_kind.singular]),
                     onAction: () => _openEditor(card, null),
                   )
                 else
@@ -203,13 +226,15 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text('TOTAL', style: AppType.over.s(9.5).c(p.inkFaint)),
-                Text(Fmt.money2(card.total),
-                    style: AppType.moneyL.s(22).c(p.ink)),
+                Text(
+                  Fmt.money2(card.total),
+                  style: AppType.moneyL.s(22).c(p.ink),
+                ),
               ],
             ),
             const Spacer(),
             GButton.accent(
-              label: 'Done',
+              label: 'Done'.tr,
               expand: false,
               onPressed: () => context.pop(),
             ),
@@ -225,10 +250,12 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
     if (q.isEmpty) return const [];
     final used = rows.map((e) => e.masterId).whereType<String>().toSet();
     return masters
-        .where((m) =>
-            !used.contains(m.id) &&
-            (m.name.toLowerCase().contains(q) ||
-                m.partNo.toLowerCase().contains(q)))
+        .where(
+          (m) =>
+              !used.contains(m.id) &&
+              (m.name.toLowerCase().contains(q) ||
+                  m.partNo.toLowerCase().contains(q)),
+        )
         .take(8)
         .toList();
   }
@@ -241,7 +268,13 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
     final result = await showLineEditor(
       context,
       kind: existing?.kind ?? _kind,
-      staff: ref.read(staffProvider),
+      // Inactive staff cannot be given new work (see the Staff screen). The
+      // one already on this line stays offered, so editing the line does
+      // not quietly hide who did it.
+      staff: ref
+          .read(staffProvider)
+          .where((s) => s.active || s.id == existing?.mechanicId)
+          .toList(),
       existing: existing,
       prefillName: prefillName,
     );
@@ -314,26 +347,33 @@ class _KindTab extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(kind.icon,
-                    size: 14,
-                    color: selected
-                        ? (p.isDark ? p.canvas : Colors.white)
-                        : p.inkMuted),
+                Icon(
+                  kind.icon,
+                  size: 14,
+                  color: selected
+                      ? (p.isDark ? p.canvas : Colors.white)
+                      : p.inkMuted,
+                ),
                 const SizedBox(width: 5),
                 Text(
                   kind.label,
-                  style: AppType.labelM.c(selected
-                      ? (p.isDark ? p.canvas : Colors.white)
-                      : p.inkSoft),
+                  style: AppType.labelM.c(
+                    selected ? (p.isDark ? p.canvas : Colors.white) : p.inkSoft,
+                  ),
                 ),
                 if (count > 0) ...[
                   const SizedBox(width: 4),
                   Text(
                     '$count',
-                    style: AppType.labelS.s(10).c(selected
-                        ? (p.isDark ? p.canvas : Colors.white)
-                            .withValues(alpha: 0.6)
-                        : p.inkFaint),
+                    style: AppType.labelS
+                        .s(10)
+                        .c(
+                          selected
+                              ? (p.isDark ? p.canvas : Colors.white).withValues(
+                                  alpha: 0.6,
+                                )
+                              : p.inkFaint,
+                        ),
                   ),
                 ],
               ],
@@ -341,9 +381,9 @@ class _KindTab extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               Fmt.money(total),
-              style: AppType.moneyS.c(selected
-                  ? (p.isDark ? p.canvas : Colors.white)
-                  : p.inkMuted),
+              style: AppType.moneyS.c(
+                selected ? (p.isDark ? p.canvas : Colors.white) : p.inkMuted,
+              ),
             ),
           ],
         ),
@@ -388,23 +428,46 @@ class _LineRow extends ConsumerWidget {
             children: [
               SizedBox(
                 width: 18,
-                child: Text('$index',
-                    style: AppType.moneyS.s(11).c(p.inkFaint)),
+                child: Text(
+                  '$index',
+                  style: AppType.moneyS.s(11).c(p.inkFaint),
+                ),
               ),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(line.name, style: AppType.labelL.c(p.ink)),
+                    Text(
+                      line.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.labelL.c(p.ink),
+                    ),
                     const SizedBox(height: 1),
+                    // Both halves give: on a narrow phone the breakdown and
+                    // the part number together are wider than the line they
+                    // sit on, and neither is worth pushing the amount off
+                    // the card for.
                     Row(
                       children: [
-                        Text('Qty × rate: ${line.breakdown}',
-                            style: AppType.bodyS.s(11.5).c(p.inkMuted)),
+                        Flexible(
+                          child: Text(
+                            'Qty × rate: {0}'.trf([line.breakdown]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.bodyS.s(11.5).c(p.inkMuted),
+                          ),
+                        ),
                         if (line.partNo.isNotEmpty) ...[
                           const SizedBox(width: Gap.sm),
-                          Text(line.partNo,
-                              style: AppType.labelS.s(10).c(p.inkFaint)),
+                          Flexible(
+                            child: Text(
+                              line.partNo,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.labelS.s(10).c(p.inkFaint),
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -412,36 +475,48 @@ class _LineRow extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: Gap.sm),
-              Text(Fmt.money2(line.amount),
-                  style: AppType.money.s(15).c(p.ink)),
+              Text(
+                Fmt.money2(line.amount),
+                style: AppType.money.s(15).c(p.ink),
+              ),
             ],
           ),
           const SizedBox(height: Gap.sm),
           Row(
             children: [
               const SizedBox(width: 18),
-              GPill(
-                label: line.state.label,
-                compact: true,
-                tone: switch (line.state) {
-                  WorkState.done => GTone.success,
-                  WorkState.running => GTone.info,
-                  WorkState.skipped => GTone.neutral,
-                  WorkState.pending => GTone.warning,
-                },
-              ),
-              if (mechanic != null) ...[
-                const SizedBox(width: Gap.sm),
-                GTag(
-                  label: mechanic.name.split(' ').first,
-                  icon: Icons.engineering_rounded,
-                  outlined: true,
+              // The status and the mechanic share what the actions leave, so
+              // a long mechanic name cannot push the row off the card.
+              Expanded(
+                child: Row(
+                  children: [
+                    GPill(
+                      label: line.state.label,
+                      compact: true,
+                      tone: switch (line.state) {
+                        WorkState.done => GTone.success,
+                        WorkState.running => GTone.info,
+                        WorkState.skipped => GTone.neutral,
+                        WorkState.pending => GTone.warning,
+                      },
+                    ),
+                    if (mechanic != null) ...[
+                      const SizedBox(width: Gap.sm),
+                      Flexible(
+                        child: GTag(
+                          label: mechanic.name.split(' ').first,
+                          icon: Icons.engineering_rounded,
+                          outlined: true,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
-              const Spacer(),
+              ),
+              const SizedBox(width: Gap.sm),
               if (!locked) ...[
                 GButton(
-                  label: 'Edit',
+                  label: 'Edit'.tr,
                   kind: GButtonKind.ghost,
                   size: GButtonSize.sm,
                   expand: false,
@@ -458,8 +533,7 @@ class _LineRow extends ConsumerWidget {
                       color: p.dangerSoft,
                       borderRadius: R.all(R.sm),
                     ),
-                    child: Icon(Icons.close_rounded,
-                        size: 16, color: p.danger),
+                    child: Icon(Icons.close_rounded, size: 16, color: p.danger),
                   ),
                 ),
               ],
@@ -502,8 +576,11 @@ class _SuggestionList extends StatelessWidget {
                 Fmt.money2(m.rate),
                 if (m.tracksStock)
                   m.out
-                      ? 'Out of stock'
-                      : '${m.stock.toStringAsFixed(0)} ${m.unit} in stock',
+                      ? 'Out of stock'.tr
+                      : '{0} {1} in stock'.trf([
+                          m.stock.toStringAsFixed(0),
+                          m.unit,
+                        ]),
               ].join('  •  '),
               icon: kind.icon,
               iconColor: m.out ? p.danger : p.inkSoft,
@@ -512,8 +589,8 @@ class _SuggestionList extends StatelessWidget {
             ),
           GTile(
             dense: true,
-            title: 'Add "$query" as a one-off',
-            subtitle: 'Not saved to the master list',
+            title: 'Add "{0}" as a one-off'.trf([query]),
+            subtitle: 'Not saved to the master list'.tr,
             icon: Icons.edit_rounded,
             iconColor: p.accentInk,
             iconBg: p.accentSoft,
@@ -543,30 +620,39 @@ class _BillSummary extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(vertical: Gap.sm),
             child: GDashedLine(color: p.line),
           ),
-          GKeyValue(label: 'Sub total', value: Fmt.money2(card.subTotal)),
+          GKeyValue(label: 'Sub total'.tr, value: Fmt.money2(card.subTotal)),
           if (card.discount > 0)
             GKeyValue(
-              label: 'Discount',
+              label: 'Discount'.tr,
               value: '- ${Fmt.money2(card.discount)}',
               valueColor: p.success,
             ),
           if (card.taxRate > 0)
             GKeyValue(
-              label: 'GST ${(card.taxRate * 100).toStringAsFixed(0)}%',
+              label: 'GST {0}%'.trf([(card.taxRate * 100).toStringAsFixed(0)]),
               value: Fmt.money2(card.taxAmount),
             ),
           GKeyValue(
-            label: 'Payable',
+            label: 'Payable'.tr,
             value: Fmt.money2(card.total),
             emphasize: true,
           ),
+          // Taking lines off a bill that already has an advance against it
+          // can leave the workshop holding more than it is owed; say so here,
+          // where the lines come off, rather than only on the ledger.
+          if (card.excess > 0) ...[
+            const SizedBox(height: Gap.sm),
+            ExcessNote(amount: card.excess),
+          ],
           if (!locked) ...[
             const SizedBox(height: Gap.md),
             Row(
               children: [
                 Expanded(
                   child: GButton(
-                    label: card.discount > 0 ? 'Edit discount' : 'Discount',
+                    label: card.discount > 0
+                        ? 'Edit discount'.tr
+                        : 'Discount'.tr,
                     kind: GButtonKind.ghost,
                     size: GButtonSize.sm,
                     icon: Icons.percent_rounded,
@@ -577,8 +663,10 @@ class _BillSummary extends ConsumerWidget {
                 Expanded(
                   child: GButton(
                     label: card.taxRate > 0
-                        ? 'GST ${(card.taxRate * 100).toStringAsFixed(0)}%'
-                        : 'Add GST',
+                        ? 'GST {0}%'.trf([
+                            (card.taxRate * 100).toStringAsFixed(0),
+                          ])
+                        : 'Add GST'.tr,
                     kind: GButtonKind.ghost,
                     size: GButtonSize.sm,
                     icon: Icons.receipt_rounded,
@@ -594,32 +682,49 @@ class _BillSummary extends ConsumerWidget {
   }
 
   Future<void> _discount(BuildContext context, WidgetRef ref) async {
-    final controller =
-        TextEditingController(text: card.discount.toStringAsFixed(0));
+    final controller = TextEditingController(
+      text: card.discount.toStringAsFixed(0),
+    );
     await GFeedback.sheet<void>(
       context,
-      title: 'Discount',
-      subtitle: 'Comes off before GST. Max ${Fmt.money2(card.subTotal)}.',
+      title: 'Discount'.tr,
+      // Owned by the sheet, not by this function: its future completes
+      // when the sheet starts closing, and the fields go on reading these
+      // all the way through the exit transition.
+      disposing: [controller],
+      subtitle: 'Comes off before GST. Max {0}.'.trf([
+        Fmt.money2(card.subTotal),
+      ]),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page,
-            MediaQuery.of(context).viewInsets.bottom + Gap.h1),
+        padding: EdgeInsets.fromLTRB(
+          Gap.page,
+          Gap.lg,
+          Gap.page,
+          MediaQuery.of(context).viewInsets.bottom + Gap.h1,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             GField(
-              label: 'Amount off',
+              label: 'Amount off'.tr,
+              hint: '100',
               controller: controller,
               autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               textCapitalization: TextCapitalization.none,
             ),
             const SizedBox(height: Gap.xxl),
             GButton.accent(
-              label: 'Apply',
+              label: 'Apply'.tr,
               onPressed: () {
-                ref.read(adminProvider.notifier).setDiscount(
-                    card.id, double.tryParse(controller.text.trim()) ?? 0);
+                ref
+                    .read(adminProvider.notifier)
+                    .setDiscount(
+                      card.id,
+                      double.tryParse(controller.text.trim()) ?? 0,
+                    );
                 Navigator.of(context).pop();
               },
             ),
@@ -627,14 +732,13 @@ class _BillSummary extends ConsumerWidget {
         ),
       ),
     );
-    controller.dispose();
   }
 
   Future<void> _tax(BuildContext context, WidgetRef ref) async {
     await GFeedback.sheet<void>(
       context,
       title: 'GST',
-      subtitle: 'Applied to the amount after discount.',
+      subtitle: 'Applied to the amount after discount.'.tr,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
@@ -643,11 +747,11 @@ class _BillSummary extends ConsumerWidget {
             for (final rate in [0.0, 0.05, 0.12, 0.18, 0.28])
               GOptionRow(
                 label: rate == 0
-                    ? 'No GST'
+                    ? 'No GST'.tr
                     : '${(rate * 100).toStringAsFixed(0)}%',
                 subtitle: rate == 0
-                    ? 'Bill the amount as it stands'
-                    : 'Adds ${Fmt.money2(card.taxable * rate)}',
+                    ? 'Bill the amount as it stands'.tr
+                    : 'Adds {0}'.trf([Fmt.money2(card.taxable * rate)]),
                 selected: (card.taxRate - rate).abs() < 0.001,
                 onTap: () {
                   ref.read(adminProvider.notifier).setTaxRate(card.id, rate);
@@ -668,8 +772,7 @@ class _LockedNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.c;
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.md),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.md),
       decoration: BoxDecoration(
         color: p.surfaceSunken,
         borderRadius: R.all(R.md),
@@ -680,8 +783,8 @@ class _LockedNote extends StatelessWidget {
           const SizedBox(width: Gap.sm),
           Expanded(
             child: Text(
-              'This card is closed — the bill is frozen. Reopen it from the '
-              'job card menu to make changes.',
+              'This card is closed — the bill is frozen. Reopen it from the job card menu to make changes.'
+                  .tr,
               style: AppType.bodyS.c(p.inkMuted),
             ),
           ),
@@ -728,9 +831,11 @@ Future<LineDraft?> showLineEditor(
   final name = TextEditingController(text: existing?.name ?? prefillName);
   final partNo = TextEditingController(text: existing?.partNo ?? '');
   final qty = TextEditingController(
-      text: (existing?.qty ?? 1).toStringAsFixed(0));
+    text: (existing?.qty ?? 1).toStringAsFixed(0),
+  );
   final rate = TextEditingController(
-      text: (existing?.rate ?? 0).toStringAsFixed(0));
+    text: (existing?.rate ?? 0).toStringAsFixed(0),
+  );
   final remark = TextEditingController(text: existing?.remark ?? '');
   var mechanicId = existing?.mechanicId;
   var work = existing?.state ?? WorkState.pending;
@@ -738,7 +843,11 @@ Future<LineDraft?> showLineEditor(
 
   await GFeedback.sheet<void>(
     context,
-    title: existing == null ? 'Add ${kind.singular}' : 'Edit line',
+    title: existing == null ? 'Add {0}'.trf([kind.singular]) : 'Edit line'.tr,
+    // Owned by the sheet, not by this function: its future completes
+    // when the sheet starts closing, and the fields go on reading these
+    // all the way through the exit transition.
+    disposing: [name, partNo, qty, rate, remark],
     subtitle: kind.label,
     child: StatefulBuilder(
       builder: (context, setSheet) {
@@ -747,13 +856,18 @@ Future<LineDraft?> showLineEditor(
         final r = double.tryParse(rate.text.trim()) ?? 0;
 
         return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page,
-              MediaQuery.of(context).viewInsets.bottom + Gap.h1),
+          padding: EdgeInsets.fromLTRB(
+            Gap.page,
+            Gap.lg,
+            Gap.page,
+            MediaQuery.of(context).viewInsets.bottom + Gap.h1,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               GField(
-                label: 'Description',
+                label: 'Description'.tr,
+                hint: 'Enter {0} name'.trf([kind.singular]),
                 controller: name,
                 autofocus: existing == null && prefillName.isEmpty,
                 textCapitalization: TextCapitalization.words,
@@ -762,8 +876,8 @@ Future<LineDraft?> showLineEditor(
               if (kind.isStocked) ...[
                 const SizedBox(height: Gap.lg),
                 GField(
-                  label: 'Part number',
-                  hint: 'Optional',
+                  label: 'Part number'.tr,
+                  hint: 'Optional'.tr,
                   controller: partNo,
                   textCapitalization: TextCapitalization.characters,
                 ),
@@ -773,10 +887,12 @@ Future<LineDraft?> showLineEditor(
                 children: [
                   Expanded(
                     child: GField(
-                      label: 'Quantity',
+                      label: 'Quantity'.tr,
+                      hint: '1',
                       controller: qty,
                       keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
+                        decimal: true,
+                      ),
                       textCapitalization: TextCapitalization.none,
                       onChanged: (_) => setSheet(() {}),
                     ),
@@ -784,14 +900,15 @@ Future<LineDraft?> showLineEditor(
                   const SizedBox(width: Gap.md),
                   Expanded(
                     child: GField(
-                      label: 'Rate',
+                      label: 'Rate'.tr,
+                      hint: '450',
                       controller: rate,
                       keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
+                        decimal: true,
+                      ),
                       textCapitalization: TextCapitalization.none,
                       inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'[0-9.]')),
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                       ],
                       onChanged: (_) => setSheet(() {}),
                     ),
@@ -801,21 +918,21 @@ Future<LineDraft?> showLineEditor(
               const SizedBox(height: Gap.md),
               Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: Gap.lg, vertical: Gap.md),
+                  horizontal: Gap.lg,
+                  vertical: Gap.md,
+                ),
                 decoration: BoxDecoration(
                   color: p.surfaceSunken,
                   borderRadius: R.all(R.md),
                 ),
                 child: Row(
                   children: [
-                    Text('Line amount', style: AppType.labelM.c(p.inkMuted)),
+                    Text('Line amount'.tr, style: AppType.labelM.c(p.inkMuted)),
                     const Spacer(),
-                    Text(Fmt.money2(q * r),
-                        style: AppType.money.c(p.ink)),
+                    Text(Fmt.money2(q * r), style: AppType.money.c(p.ink)),
                   ],
                 ),
               ),
-
               if (staff.isNotEmpty) ...[
                 const SizedBox(height: Gap.lg),
                 Text('MECHANIC', style: AppType.over.c(p.inkFaint)),
@@ -826,32 +943,36 @@ Future<LineDraft?> showLineEditor(
                   children: [
                     for (final s in staff)
                       Pressable(
-                        onTap: () => setSheet(() => mechanicId =
-                            mechanicId == s.id ? null : s.id),
+                        onTap: () => setSheet(
+                          () => mechanicId = mechanicId == s.id ? null : s.id,
+                        ),
                         scale: 0.95,
                         child: AnimatedContainer(
                           duration: Motion.fast,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: Gap.md, vertical: Gap.sm),
+                            horizontal: Gap.md,
+                            vertical: Gap.sm,
+                          ),
                           decoration: BoxDecoration(
                             color: mechanicId == s.id ? p.ink : p.surface,
                             borderRadius: R.all(R.pill),
                             border: Border.all(
-                                color:
-                                    mechanicId == s.id ? p.ink : p.line),
+                              color: mechanicId == s.id ? p.ink : p.line,
+                            ),
                           ),
                           child: Text(
                             s.name,
-                            style: AppType.labelM.c(mechanicId == s.id
-                                ? (p.isDark ? p.canvas : Colors.white)
-                                : p.inkSoft),
+                            style: AppType.labelM.c(
+                              mechanicId == s.id
+                                  ? (p.isDark ? p.canvas : Colors.white)
+                                  : p.inkSoft,
+                            ),
                           ),
                         ),
                       ),
                   ],
                 ),
               ],
-
               if (existing != null) ...[
                 const SizedBox(height: Gap.lg),
                 Text('STATUS', style: AppType.over.c(p.inkFaint)),
@@ -865,16 +986,15 @@ Future<LineDraft?> showLineEditor(
                 ),
                 const SizedBox(height: Gap.lg),
                 GField(
-                  label: 'Remark for the floor',
-                  hint: 'Shows on the mechanic copy',
+                  label: 'Remark for the floor'.tr,
+                  hint: 'Shows on the mechanic copy'.tr,
                   controller: remark,
                   maxLines: 2,
                 ),
               ],
-
               const SizedBox(height: Gap.xxl),
               GButton.accent(
-                label: existing == null ? 'Add to bill' : 'Save line',
+                label: existing == null ? 'Add to bill'.tr : 'Save line'.tr,
                 onPressed: name.text.trim().isEmpty
                     ? null
                     : () {
@@ -898,8 +1018,5 @@ Future<LineDraft?> showLineEditor(
     ),
   );
 
-  for (final c in [name, partNo, qty, rate, remark]) {
-    c.dispose();
-  }
   return out;
 }

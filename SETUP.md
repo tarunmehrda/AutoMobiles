@@ -45,6 +45,13 @@ the policies in `supabase/02_garage.sql`. That one is safe where it is.
 
 All three are idempotent, so re-running them is safe.
 
+The order is not a suggestion: each file builds on the tables the one before
+it creates, so running 02 or 03 first fails with `relation "public.profiles"
+does not exist` or `relation "public.invoices" does not exist`. If you would
+rather not think about it, paste `supabase/setup_all.sql` instead — it is the
+three files concatenated in the right order, and it is the only thing you need
+to run.
+
 Check it worked: the [**Table Editor**](https://supabase.com/dashboard/project/zlrmcrhwtfbwbxhfmygs/editor) should list `garages`, `job_cards`,
 `line_items`, `garage_customers`, `customer_link_codes` alongside `bookings`,
 `invoices`, `vehicles`.
@@ -52,6 +59,19 @@ Check it worked: the [**Table Editor**](https://supabase.com/dashboard/project/z
 > **Do not skip 03.** Until it has run, any signed-in customer can type
 > somebody else's phone number into their own profile and inherit that
 > person's entire service history — see *What 03 fixes*, below.
+
+### Starting over
+
+`supabase/00_reset.sql` drops everything the three files create, so you can
+run them again on an empty project. **It destroys all data and cannot be
+undone** — job cards, customers, vehicles, invoices, the lot.
+
+Run it, then `supabase/setup_all.sql` (or 01 → 02 → 03, in that order).
+
+Its last section also deletes every signed-up user, which signs everyone out
+of both apps and forgets their Google links. Delete those lines before running
+if you want to keep your logins and only reset the data — the file says which
+ones.
 
 ---
 

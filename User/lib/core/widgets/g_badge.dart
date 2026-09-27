@@ -240,7 +240,7 @@ class GChoiceChips<T> extends StatelessWidget {
         padding: padding,
         physics: const BouncingScrollPhysics(),
         itemCount: options.length,
-        separatorBuilder: (_, __) => const SizedBox(width: Gap.sm),
+        separatorBuilder: (_, _) => const SizedBox(width: Gap.sm),
         itemBuilder: (context, i) {
           final o = options[i];
           final isSel = o == selected;

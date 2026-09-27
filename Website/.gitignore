@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-portable/
+shots/
+.vite/
+*.local
+.DS_Store

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/anim/entrance.dart';
@@ -10,11 +9,51 @@ import '../../core/theme/app_type.dart';
 import '../../core/widgets/g_appbar.dart';
 import '../../core/widgets/g_badge.dart';
 import '../../core/widgets/g_button.dart';
+import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_field.dart';
 import '../../core/widgets/g_state.dart';
 import '../../core/widgets/g_surface.dart';
 import '../../data/models/entities.dart';
 import '../../data/seed/catalog_seed.dart';
+import '../../data/models/workshop.dart';
+import '../../state/providers.dart';
+
+/// Support is the workshop itself — there is no second desk behind this app,
+/// so "message us" means message them.
+Future<void> _whatsapp(BuildContext context, Workshop shop) async {
+  if (shop.whatsapp.isEmpty) {
+    _noNumber(context, shop);
+    return;
+  }
+  final uri = Uri.parse('https://wa.me/${shop.whatsapp}');
+  if (await canLaunchUrl(uri)) {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
+/// Rings the workshop on the number it gave the counter.
+Future<void> _call(BuildContext context, Workshop shop) async {
+  final phone = shop.phone.trim();
+  if (phone.isEmpty) {
+    _noNumber(context, shop);
+    return;
+  }
+  final uri = Uri.parse('tel:$phone');
+  if (await canLaunchUrl(uri)) await launchUrl(uri);
+}
+
+/// Says why the button did nothing, instead of doing nothing.
+///
+/// Both buttons used to go quiet with no number to use — WhatsApp returned
+/// early and Call opened the dialler on an empty `tel:` — and a tap that
+/// does nothing reads as a broken app. The reason is almost always that no
+/// workshop is linked yet, which the customer can fix by booking one.
+void _noNumber(BuildContext context, Workshop shop) => GFeedback.info(
+      context,
+      shop.isLinked
+          ? 'Your workshop has not added a phone number yet.'
+          : 'No workshop linked yet — book a service first.',
+    );
 
 class HelpPage extends ConsumerStatefulWidget {
   const HelpPage({super.key});
@@ -94,8 +133,8 @@ class _HelpPageState extends ConsumerState<HelpPage> {
               message:
                   'Ask us directly — the workshop usually replies within a few '
                   'minutes during working hours.',
-              actionLabel: 'Open chat',
-              onAction: () => context.push('/chat'),
+              actionLabel: 'Message the workshop',
+              onAction: () => _whatsapp(context, ref.read(workshopProvider)),
               compact: true,
             )
           else
@@ -122,8 +161,8 @@ class _HelpPageState extends ConsumerState<HelpPage> {
                   Text('Still need a human?', style: AppType.h1.c(p.ink)),
                   const SizedBox(height: 4),
                   Text(
-                    'Call the workshop, message on WhatsApp, or raise a ticket '
-                    'and we will reply within 24 hours.',
+                    'Call the workshop, or send them a message on WhatsApp. '
+                    'They answer during working hours.',
                     style: AppType.bodyM.c(p.inkMuted),
                   ),
                   const SizedBox(height: Gap.lg),
@@ -134,18 +173,18 @@ class _HelpPageState extends ConsumerState<HelpPage> {
                           label: 'Call',
                           icon: Icons.call_rounded,
                           expand: true,
-                          onPressed: () async {
-                            final uri = Uri.parse('tel:${Seed.garage.phone}');
-                            if (await canLaunchUrl(uri)) await launchUrl(uri);
-                          },
+                          onPressed: () =>
+                              _call(context, ref.read(workshopProvider)),
                         ),
                       ),
                       const SizedBox(width: Gap.sm),
                       Expanded(
                         child: GButton.accent(
-                          label: 'Raise a ticket',
+                          label: 'WhatsApp',
                           size: GButtonSize.md,
-                          onPressed: () => context.push('/tickets'),
+                          icon: Icons.chat_rounded,
+                          onPressed: () =>
+                              _whatsapp(context, ref.read(workshopProvider)),
                         ),
                       ),
                     ],

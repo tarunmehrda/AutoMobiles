@@ -8,11 +8,8 @@ import 'package:garagepro/features/auth/login_page.dart';
 
 /// The welcome screen, laid out the way a phone would.
 ///
-/// There is no video plugin behind a widget test, so every pump here goes
-/// down [CinematicBackground]'s no-decoder path — which is exactly the branch
-/// worth guarding, because it is the one that runs on any device whose
-/// platform cannot give us a decoder. What the test is really asking is: does
-/// the screen still hold together with only the poster frame under it, at the
+/// [CinematicBackground] is a single still under a drift, so what the test is
+/// really asking is: does the screen hold together over that one frame, at the
 /// sizes real phones come in?
 void main() {
   Future<void> pumpWelcome(WidgetTester tester, Size size) async {
@@ -31,13 +28,13 @@ void main() {
     );
 
     // Long enough for the staggered entrances to finish, but never
-    // `pumpAndSettle` — the ticker and the poster drift both run forever by
-    // design, and settling would wait on them until it timed out.
+    // `pumpAndSettle` — the background drift runs forever by design, and
+    // settling would wait on it until it timed out.
     await tester.pump(const Duration(milliseconds: 900));
   }
 
-  /// Takes the tree down so the ticker's timer and the drift controller are
-  /// disposed before the test ends.
+  /// Takes the tree down so the drift controller is disposed before the
+  /// test ends.
   Future<void> teardown(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -65,20 +62,19 @@ void main() {
     });
   }
 
-  testWidgets('falls back to the poster when there is no decoder',
-      (tester) async {
+  testWidgets('paints the hero still full-bleed', (tester) async {
     await pumpWelcome(tester, const Size(390, 844));
 
-    // The reel never initialises here, so the still is what is on screen —
-    // and it must actually be painted, not merely constructed.
-    final poster = tester.widget<Image>(
+    // The still is the whole background — it must actually be painted, not
+    // merely constructed, and it must cover rather than letterbox.
+    final still = tester.widget<Image>(
       find.descendant(
         of: find.byType(CinematicBackground),
         matching: find.byType(Image),
       ),
     );
-    expect((poster.image as AssetImage).assetName, HeroReel.poster);
-    expect(poster.fit, BoxFit.cover);
+    expect((still.image as AssetImage).assetName, HeroStill.image);
+    expect(still.fit, BoxFit.cover);
     expect(tester.takeException(), isNull);
 
     await teardown(tester);

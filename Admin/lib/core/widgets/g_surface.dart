@@ -68,7 +68,14 @@ class GSectionHeader extends StatelessWidget {
     this.subtitle,
     this.actionLabel,
     this.onAction,
-    this.padding = const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.page, Gap.md),
+    this.icon,
+    this.iconTint,
+    this.padding = const EdgeInsets.fromLTRB(
+      Gap.page,
+      Gap.xxl,
+      Gap.page,
+      Gap.md,
+    ),
   });
 
   final String title;
@@ -76,6 +83,15 @@ class GSectionHeader extends StatelessWidget {
   final String? subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
+
+  /// An optional glyph in a tinted rounded square, ahead of the title. The
+  /// section headings on the job card read this way, and a heading that looks
+  /// like a heading everywhere is worth more than the twelve pixels it costs.
+  final IconData? icon;
+
+  /// What the glyph is tinted with. Defaults to the palette's accent.
+  final Color? iconTint;
+
   final EdgeInsetsGeometry padding;
 
   @override
@@ -84,15 +100,34 @@ class GSectionHeader extends StatelessWidget {
     return Padding(
       padding: padding,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          if (icon != null) ...[
+            Builder(
+              builder: (context) {
+                final tint = iconTint ?? p.accent;
+                return Container(
+                  height: 42,
+                  width: 42,
+                  decoration: BoxDecoration(
+                    color: tint.withValues(alpha: p.isDark ? 0.18 : 0.12),
+                    borderRadius: R.all(R.md),
+                  ),
+                  child: Icon(icon, size: 21, color: tint),
+                );
+              },
+            ),
+            const SizedBox(width: Gap.md),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (eyebrow != null) ...[
-                  Text(eyebrow!.toUpperCase(),
-                      style: AppType.over.c(p.accentInk)),
+                  Text(
+                    eyebrow!.toUpperCase(),
+                    style: AppType.over.c(p.accentInk),
+                  ),
                   const SizedBox(height: 5),
                 ],
                 Text(title, style: AppType.h1.c(p.ink)),
@@ -150,40 +185,67 @@ class GTile extends StatelessWidget {
       scale: 0.99,
       child: Padding(
         padding: EdgeInsets.symmetric(
-            horizontal: Gap.lg, vertical: dense ? Gap.md : Gap.lg - 2),
+          horizontal: Gap.lg,
+          vertical: dense ? Gap.md : Gap.lg - 2,
+        ),
         child: Row(
           children: [
             if (leading != null)
               leading!
             else if (icon != null)
               Container(
-                height: dense ? 34 : 40,
-                width: dense ? 34 : 40,
+                height: dense ? 36 : 42,
+                width: dense ? 36 : 42,
                 decoration: BoxDecoration(
-                  color: iconBg ?? p.surfaceSunken,
-                  borderRadius: R.all(R.sm),
+                  color:
+                      iconBg ??
+                      (iconColor ?? p.accent).withValues(
+                        alpha: p.isDark ? 0.18 : 0.12,
+                      ),
+                  borderRadius: R.all(R.md),
                 ),
-                child: Icon(icon, size: dense ? 17 : 20, color: iconColor ?? p.inkSoft),
+                child: Icon(
+                  icon,
+                  size: dense ? 18 : 21,
+                  color: iconColor ?? p.accent,
+                ),
               ),
             if (leading != null || icon != null) const SizedBox(width: Gap.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: AppType.labelL.c(p.ink)),
+                  Text(
+                    title,
+                    style: AppType.labelL.c(p.ink).w(FontWeight.w700),
+                  ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
-                    Text(subtitle!,
-                        style: AppType.bodyS.c(p.inkMuted),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      subtitle!,
+                      style: AppType.bodyS.c(p.inkMuted),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ],
               ),
             ),
             if (trailing != null) trailing!,
             if (trailing == null && showChevron && onTap != null)
-              Icon(Icons.chevron_right_rounded, color: p.inkFaint, size: 22),
+              Container(
+                height: 24,
+                width: 24,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: p.isDark ? p.surfaceSunken : p.canvas,
+                ),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  color: p.inkMuted,
+                  size: 17,
+                ),
+              ),
           ],
         ),
       ),
@@ -207,7 +269,10 @@ class GTileGroup extends StatelessWidget {
         if (title != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.xs, 0, 0, Gap.sm),
-            child: Text(title!.toUpperCase(), style: AppType.over.c(p.inkFaint)),
+            child: Text(
+              title!.toUpperCase(),
+              style: AppType.over.c(p.inkFaint),
+            ),
           ),
         GCard(
           padding: EdgeInsets.zero,
@@ -231,7 +296,13 @@ class GTileGroup extends StatelessWidget {
 
 /// Dashed separator used on invoices and job cards.
 class GDashedLine extends StatelessWidget {
-  const GDashedLine({super.key, this.color, this.height = 1, this.dash = 5, this.gap = 4});
+  const GDashedLine({
+    super.key,
+    this.color,
+    this.height = 1,
+    this.dash = 5,
+    this.gap = 4,
+  });
 
   final Color? color;
   final double height;
@@ -248,11 +319,8 @@ class GDashedLine extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: List.generate(
             count,
-            (_) => Container(
-              width: dash,
-              height: height,
-              color: color ?? p.line,
-            ),
+            (_) =>
+                Container(width: dash, height: height, color: color ?? p.line),
           ),
         );
       },
@@ -299,9 +367,12 @@ class GKeyValue extends StatelessWidget {
           if (strikeValue != null) ...[
             Text(
               strikeValue!,
-              style: AppType.moneyS.c(p.inkFaint).copyWith(
-                  decoration: TextDecoration.lineThrough,
-                  decorationColor: p.inkFaint),
+              style: AppType.moneyS
+                  .c(p.inkFaint)
+                  .copyWith(
+                    decoration: TextDecoration.lineThrough,
+                    decorationColor: p.inkFaint,
+                  ),
             ),
             const SizedBox(width: Gap.sm),
           ],

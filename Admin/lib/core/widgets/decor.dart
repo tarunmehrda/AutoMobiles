@@ -39,7 +39,10 @@ class BlueprintPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     for (var i = 1; i <= 3; i++) {
       canvas.drawCircle(
-          Offset(size.width * 0.92, size.height * 0.1), 34.0 * i, arc);
+        Offset(size.width * 0.92, size.height * 0.1),
+        34.0 * i,
+        arc,
+      );
     }
   }
 
@@ -87,10 +90,14 @@ class HealthGauge extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('${(v * 100).round()}',
-                      style: AppType.moneyL.s(size * 0.26).c(p.ink)),
-                  Text(label.toUpperCase(),
-                      style: AppType.over.s(9).c(p.inkMuted)),
+                  Text(
+                    '${(v * 100).round()}',
+                    style: AppType.moneyL.s(size * 0.26).c(p.ink),
+                  ),
+                  Text(
+                    label.toUpperCase(),
+                    style: AppType.over.s(9).c(p.inkMuted),
+                  ),
                 ],
               ),
             ),
@@ -120,8 +127,12 @@ class _GaugePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final stroke = size.width * 0.075;
-    final rect = Rect.fromLTWH(stroke / 2, stroke / 2, size.width - stroke,
-        size.height - stroke);
+    final rect = Rect.fromLTWH(
+      stroke / 2,
+      stroke / 2,
+      size.width - stroke,
+      size.height - stroke,
+    );
 
     canvas.drawArc(
       rect,
@@ -263,10 +274,12 @@ class GGlow extends StatelessWidget {
                 width: radius,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: RadialGradient(colors: [
-                    c.withValues(alpha: 0.30),
-                    c.withValues(alpha: 0.0),
-                  ]),
+                  gradient: RadialGradient(
+                    colors: [
+                      c.withValues(alpha: 0.30),
+                      c.withValues(alpha: 0.0),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -280,7 +293,11 @@ class GGlow extends StatelessWidget {
 
 /// Ticket-style notch used on invoices and coupons.
 class NotchedCardClipper extends CustomClipper<Path> {
-  NotchedCardClipper({required this.notchY, this.radius = 12, this.corner = 20});
+  NotchedCardClipper({
+    required this.notchY,
+    this.radius = 12,
+    this.corner = 20,
+  });
 
   final double notchY;
   final double radius;
@@ -289,13 +306,17 @@ class NotchedCardClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
     final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(
+      ..addRRect(
+        RRect.fromRectAndRadius(
           Rect.fromLTWH(0, 0, size.width, size.height),
-          Radius.circular(corner)));
+          Radius.circular(corner),
+        ),
+      );
     final notch = Path()
       ..addOval(Rect.fromCircle(center: Offset(0, notchY), radius: radius))
       ..addOval(
-          Rect.fromCircle(center: Offset(size.width, notchY), radius: radius));
+        Rect.fromCircle(center: Offset(size.width, notchY), radius: radius),
+      );
     return Path.combine(PathOperation.difference, path, notch);
   }
 

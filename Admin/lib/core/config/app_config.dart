@@ -10,6 +10,37 @@ class AppConfig {
   static const String tagline = 'Run the whole workshop.';
   static const String version = '1.0.0';
 
+  /// Sent with every photograph fetched from the web. Wikimedia, where the
+  /// parts catalogue's pictures live, answers the stock `Dart/3.x (dart:io)`
+  /// agent with 429 and nothing else under its User-Agent policy, so every
+  /// part tile fell back to its icon. An agent that names the app is served.
+  static const Map<String, String> imageHeaders = {
+    'User-Agent': 'BalajiGarageAdmin/$version ($shareBase) Flutter',
+  };
+
+  /// Where a shared job card opens. The customer taps this in a WhatsApp
+  /// message and sees their own bill without installing or signing in to
+  /// anything — see `supabase/07_share.sql` and the `/j/:token` route in
+  /// `Website/src/pages/JobCard.jsx`.
+  ///
+  /// No trailing slash; [shareLink] adds the path.
+  static const String shareBase = String.fromEnvironment(
+    'SHARE_BASE',
+    defaultValue: 'https://balajiautomobiles.in',
+  );
+
+  /// The public link for one job card's share token.
+  static String shareLink(String token) => '$shareBase/j/$token';
+
+  /// Where a customer gets the Balaji Car app — the download site. This is
+  /// what the Online Garage screen shares: the customer installs the app,
+  /// finds the workshop by name and books from its menu. (It used to share
+  /// `my.ttngarage.com/<slug>`, a site that has never existed.)
+  static const String customerAppLink = String.fromEnvironment(
+    'CUSTOMER_APP_LINK',
+    defaultValue: 'https://balaji-automobiles-apps.netlify.app',
+  );
+
   /// Paste the project URL here, or pass --dart-define=SUPABASE_URL=...
   static const String supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
@@ -32,7 +63,6 @@ class AppConfig {
       'sb_publishable_IJGQOXtE8tr7b_IgIi5cdQ_wDs6oFl7';
   // -------------------------------------------------------------------------
 
-
   /// The OAuth **Web** client from Google Cloud Console — the same one pasted
   /// into Supabase -> Authentication -> Providers -> Google. Native sign-in
   /// asks Google for an ID token addressed to this client, which is what
@@ -43,16 +73,11 @@ class AppConfig {
   /// Where Google (and any other OAuth provider) sends the browser back
   /// to. Registered in AndroidManifest.xml and Info.plist, and must be
   /// listed under Authentication -> URL Configuration in Supabase.
-  static const String authRedirect = 'com.garagepro.garageproadmin://login-callback';
+  static const String authRedirect =
+      'com.garagepro.garageproadmin://login-callback';
 
   static bool get hasSupabase =>
       supabaseUrl.trim().isNotEmpty && supabaseAnonKey.trim().isNotEmpty;
-
-  /// Seconds an OTP stays valid.
-  static const int otpTtlSeconds = 300;
-
-  /// Seconds before "Resend OTP" is offered again.
-  static const int otpResendSeconds = 30;
 
   /// Where the Support sheet dials out to.
   static const String supportPhone = '9269297999';

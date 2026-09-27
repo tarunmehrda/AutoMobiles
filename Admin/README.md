@@ -31,7 +31,9 @@ is reachable immediately.
 | Money | Record payment, close-with-balance, pending balance list, service-due follow-up with one-tap WhatsApp |
 | Stock | Labour / spare / lube masters, live stock, low-stock filter, receive stock |
 | Reports | Billed vs collected, cards opened, average bill, turnaround, revenue split by kind, most-billed lines |
-| Admin | Workshop details, mechanics, messaging, default GST, theme, demo data, support |
+| Attendance | Punch in / punch out against a pinned workshop location, live distance dial, day register with hours worked, blocked-attempt log |
+| Contacts | The phone's address book, searchable, with existing customers marked; call, WhatsApp or save straight to the customer book |
+| Admin | Workshop details, mechanics, attendance location, messaging, default GST, theme, demo data, support |
 
 ### Business rules enforced in code
 
@@ -97,6 +99,56 @@ change it in both.
 
 ---
 
+## Attendance, and what "verified" means
+
+Punching in is the one thing in this console that the phone is **not**
+trusted to decide. Everything else here is offline-first — the counter is
+the authority on its own paperwork — but attendance is the case where the
+device is the thing being checked, so the same design would be no design.
+
+The rules therefore live in the database.
+[`../supabase/05_attendance.sql`](../supabase/05_attendance.sql) gives
+`attendance` a select policy and **nothing else**: no insert, no update, no
+delete, for anybody, owner included. Rows come into existence only through
+`punch_attendance()`, which re-derives the distance from the submitted
+coordinates, re-reads the radius from the garage row, stamps the time from
+the server's clock, and writes every refusal down as a row rather than
+dropping it.
+
+On the device, [`repo/attendance_gate.dart`](lib/data/repo/attendance_gate.dart)
+checks three things the server cannot see:
+
+1. **The platform mock flag** (`Position.isMocked`). Since Android 6 the
+   supported way to feed a device a false position is to register as a mock
+   location provider, and every fix from one is flagged. This is what the
+   Play Store shelf of "Fake GPS" apps trips.
+2. **A second provider.** The same question is put to the platform
+   `LocationManager` as well as Google's fused client; a hook usually sits
+   on only one. Two providers further apart than their own accuracy explains
+   is the finding.
+3. **Physics.** A phone that was at the workshop a minute ago cannot be
+   forty kilometres away now.
+
+An attempt the device catches as abuse is still sent upstream, so it lands
+in the register as a blocked attempt instead of being swallowed by the phone
+that made it.
+
+**What this does not do.** A rooted device running a hook inside the app's
+own process can hand the server a plausible, un-flagged, in-radius lie, and
+on iOS `isMocked` is always false — spoofing there needs a jailbreak or a
+Mac on a cable. These controls raise the cost from "install a free app" to
+"root the phone and defeat the cross-provider check", and make every attempt
+visible. That is the achievable goal.
+
+**On the 5 m radius.** It is the default, and it is smaller than the
+instrument measuring it: a phone fix is good to roughly 5–15 m in the open
+and worse under a roof. A circle that tight will sometimes turn away
+somebody genuinely standing in it. The radius and the accuracy ceiling are
+both columns on `garages`, editable from **Attendance → location**, and the
+screen says so at the point where it can still be acted on.
+
+---
+
 ## The backend
 
 The console is wired to Supabase and signs in with **Google, email and
@@ -134,3 +186,11 @@ read-only view of them. See **How the two apps meet** in `../SETUP.md`.
   the customer app can show them.
 - Stock is single-location and has no purchase-order trail. `restock()` is the
   hook to hang one on.
+- Attendance is marked against a `staff` row chosen on the device, not against
+  an authenticated identity — anybody holding the phone can punch in as
+  anybody on the team. The location controls stop a punch from the wrong
+  *place*, not from the wrong *person*. `garage_members.staff_id` in
+  `04_roles.sql` is where per-person sign-in would attach.
+- Without `05_attendance.sql` on the project, punches still record but land in
+  the register marked **Not verified** — the phone's unchecked word for it.
+  Run `../supabase/99_verify.sql` to see which files a database is missing.

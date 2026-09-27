@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -23,15 +24,29 @@ class ProfileSetupPage extends ConsumerStatefulWidget {
 class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
   final _name = TextEditingController();
   final _email = TextEditingController();
+
+  /// Prefilled with whatever sign-in brought, which for a Google account is
+  /// nothing — hence editable. The workshop finds a customer's bookings by
+  /// this number, so an empty one is a customer it cannot match.
+  late final _phone =
+      TextEditingController(text: ref.read(userProvider)?.phone ?? '');
   DateTime? _dob;
   String? _gender;
 
-  bool get _valid => _name.text.trim().length >= 2;
+  /// Optional like everything but the name, but a number that is typed has
+  /// to be a whole one: nine digits matches nobody at the counter.
+  bool get _phoneOk {
+    final n = _phone.text.trim().length;
+    return n == 0 || n == 10;
+  }
+
+  bool get _valid => _name.text.trim().length >= 2 && _phoneOk;
 
   @override
   void dispose() {
     _name.dispose();
     _email.dispose();
+    _phone.dispose();
     super.dispose();
   }
 
@@ -51,6 +66,7 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
     if (!_valid) return;
     ref.read(appControllerProvider.notifier).saveProfile(
           name: _name.text.trim(),
+          phone: _phone.text.trim(),
           email: _email.text.trim().isEmpty ? null : _email.text.trim(),
           dob: _dob,
           gender: _gender,
@@ -61,7 +77,6 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
   @override
   Widget build(BuildContext context) {
     final p = context.c;
-    final user = ref.watch(userProvider);
 
     return Scaffold(
       backgroundColor: p.canvas,
@@ -128,10 +143,19 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
                       index: 3,
                       child: GField(
                         label: 'Mobile number',
-                        initialValue: user?.phone ?? '',
-                        enabled: false,
-                        suffix: Icon(Icons.verified_rounded,
-                            size: 18, color: p.success),
+                        hint: '10-digit number',
+                        controller: _phone,
+                        keyboardType: TextInputType.phone,
+                        textCapitalization: TextCapitalization.none,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
+                        helper: 'So your garage can match your bookings '
+                            'and reach you',
+                        onChanged: (_) => setState(() {}),
+                        prefix: Icon(Icons.phone_outlined,
+                            size: 19, color: p.inkMuted),
                       ),
                     ),
                     const SizedBox(height: Gap.xl),

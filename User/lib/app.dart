@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/config/app_config.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/alert_host.dart';
+import 'features/intro/intro_overlay.dart';
 import 'state/auth_state.dart';
 import 'state/providers.dart';
 
@@ -36,7 +38,19 @@ class BalajiApp extends ConsumerWidget {
           ),
           child: ScrollConfiguration(
             behavior: const _AppScrollBehavior(),
-            child: child ?? const SizedBox.shrink(),
+            // The welcome video lives above the router rather than inside a
+            // screen, so it keeps playing while the customer navigates. It
+            // draws nothing at all until there is something to play.
+            // Above the router, so an update from the workshop is
+            // announced over whatever route is on top -- including a
+            // full-screen sheet. Below the intro video, which owns the
+            // screen outright while it plays.
+            child: Stack(
+              children: [
+                AlertHost(child: child ?? const SizedBox.shrink()),
+                const IntroOverlay(),
+              ],
+            ),
           ),
         );
       },

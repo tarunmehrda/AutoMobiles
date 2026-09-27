@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../config/brand.dart';
+
 /// Balaji Automobiles palette — "Pit Lane".
 ///
 /// Carbon base, signal-orange accent, volt highlight reserved for the
@@ -93,7 +95,7 @@ class AppPalette {
   LinearGradient get accentGradient => const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFFFF7A3D), Color(0xFFF2481B)],
+        colors: Brand.accentGradient,
       );
 
   LinearGradient get inverseGradient => LinearGradient(
@@ -129,10 +131,11 @@ class AppColors {
     inkFaint: Color(0xFF9AA4B1),
     line: Color(0xFFE2E6EC),
     lineSoft: Color(0xFFEDF0F4),
-    accent: Color(0xFFFF5F2E),
-    accentSoft: Color(0xFFFFEDE5),
-    accentInk: Color(0xFFD9410F),
-    onAccent: Color(0xFFFFFFFF),
+    // The one place the product's colour is decided is lib/config/brand.dart.
+    accent: Brand.accent,
+    accentSoft: Brand.accentSoft,
+    accentInk: Brand.accentInk,
+    onAccent: Brand.onAccent,
     volt: Color(0xFFC6F24E),
     success: Color(0xFF0FA968),
     successSoft: Color(0xFFE4F7EE),

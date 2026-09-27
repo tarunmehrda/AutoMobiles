@@ -243,7 +243,7 @@ class GSearchBar extends StatelessWidget {
                 child: Icon(Icons.close_rounded, size: 18, color: p.inkMuted),
               ),
             ),
-          if (trailing != null) trailing!,
+          ?trailing,
           const SizedBox(width: Gap.md),
         ],
       ),
@@ -274,18 +274,24 @@ class GSegmented<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.c;
     final index = options.indexOf(selected).clamp(0, options.length - 1);
-    return LayoutBuilder(
-      builder: (context, c) {
-        final w = (c.maxWidth - 8) / options.length;
-        return Container(
-          height: height,
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: p.surfaceSunken,
-            borderRadius: R.all(R.md),
-            border: Border.all(color: p.line),
-          ),
-          child: Stack(
+    return Container(
+      height: height,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: p.surfaceSunken,
+        borderRadius: R.all(R.md),
+        border: Border.all(color: p.line),
+      ),
+      // Measured inside the track rather than outside it. Working the pill
+      // width out from the incoming constraint meant subtracting the padding
+      // and the border by hand, and being a pixel out either way overflowed
+      // the row — which is what "RIGHT OVERFLOWED BY 2.0 PIXELS" was. Here
+      // maxWidth is already the space the pills actually have, so there is
+      // no sum to keep in step with the padding.
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final w = c.maxWidth / options.length;
+          return Stack(
             children: [
               AnimatedPositioned(
                 duration: Motion.base,
@@ -310,25 +316,32 @@ class GSegmented<T> extends StatelessWidget {
                       child: Pressable(
                         onTap: () => onSelect(o),
                         scale: 0.96,
+                        // Segment labels shrink to fit rather than being cut
+                        // to "Mechanic Cop…" — the whole word is the point of
+                        // a tab, and a long one must not push the row wider
+                        // than its share of the track either.
                         child: Center(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (iconOf?.call(o) != null) ...[
-                                Icon(iconOf!.call(o),
-                                    size: 16,
-                                    color: o == selected ? p.ink : p.inkMuted),
-                                const SizedBox(width: 6),
-                              ],
-                              Flexible(
-                                child: Text(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (iconOf?.call(o) != null) ...[
+                                  Icon(iconOf!.call(o),
+                                      size: 16,
+                                      color:
+                                          o == selected ? p.ink : p.inkMuted),
+                                  const SizedBox(width: 6),
+                                ],
+                                Text(
                                   labelOf(o),
-                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  softWrap: false,
                                   style: AppType.labelM
                                       .c(o == selected ? p.ink : p.inkMuted),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -336,9 +349,9 @@ class GSegmented<T> extends StatelessWidget {
                 ],
               ),
             ],
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

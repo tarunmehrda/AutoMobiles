@@ -4,6 +4,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import 'push_service.dart';
 
 final authServiceProvider =
     Provider<AuthService>((ref) => AuthService.instance);
@@ -176,6 +177,9 @@ class AuthService {
     if (!enabled) return const AuthResult.failed(_offline);
     if (kIsWeb) return _googleViaBrowser();
 
+    // How long the native sheet was up. A "cancelled" that comes back
+    // almost instantly is not a cancellation — see below.
+    final shown = Stopwatch()..start();
     try {
       await _googleReady;
       final account = await GoogleSignIn.instance.authenticate();
@@ -190,6 +194,24 @@ class AuthService {
       return const AuthResult.ok();
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled) {
+        // Credential Manager reports a dismissed sheet and a sheet that was
+        // never really shown with the same code. The difference that
+        // matters is time: nobody reads a Google account chooser and
+        // decides against it inside a second. Under that, the sheet closed
+        // on its own — which on Android means this build's package name and
+        // signing SHA-1 are not registered against an Android OAuth client
+        // in the Google Cloud project that owns `googleWebClientId`.
+        //
+        // That is a configuration problem the person tapping the button can
+        // do nothing about, so it must not dead-end as "you cancelled".
+        // The browser flow does not depend on the Android client, so it is
+        // a real way through while the console is being fixed.
+        if (shown.elapsedMilliseconds < _dismissedByHand) {
+          debugPrint('google sheet closed in ${shown.elapsedMilliseconds}ms — '
+              'treating as a configuration problem, not a cancellation. '
+              'Check the Android OAuth client for this package and SHA-1.');
+          return _googleViaBrowser();
+        }
         return const AuthResult.failed('Sign-in cancelled.');
       }
       // Anything else here is a device or project-configuration problem
@@ -207,6 +229,10 @@ class AuthService {
           : 'Google sign-in is not available on this device.');
     }
   }
+
+  /// Below this, a "cancelled" came back faster than a person could have
+  /// read the sheet, so nobody cancelled anything.
+  static const int _dismissedByHand = 1200;
 
   /// One-time set-up of the native sign-in client, shared by every attempt.
   late final Future<void> _googleReady = GoogleSignIn.instance.initialize(
@@ -242,6 +268,15 @@ class AuthService {
 
   Future<void> signOut() async {
     if (!enabled) return;
+
+    // Before the session goes: `forget_customer_device` only removes a
+    // token for the account that registered it, and once signed out there
+    // is no account. A phone left registered would keep getting the last
+    // customer's updates.
+    await PushService.instance.stop((token) async {
+      await _client?.rpc('forget_customer_device', params: {'tok': token});
+    });
+
     try {
       await _client!.auth.signOut();
     } catch (e) {
@@ -290,6 +325,14 @@ class AuthService {
     }
     if (raw.contains('password should be at least')) {
       return 'Use a password of at least 6 characters.';
+    }
+    // The project's email allowance is a few messages an hour for everyone
+    // together, not per person, so "wait a minute" sent people round in
+    // circles. Google needs no email at all.
+    if (e.code == 'over_email_send_rate_limit' ||
+        raw.contains('email rate limit')) {
+      return 'No more emails can be sent for now — the limit resets within '
+          'an hour. Continue with Google instead: it needs no email.';
     }
     if (raw.contains('rate limit') || raw.contains('too many')) {
       return 'Too many attempts. Wait a minute and try again.';

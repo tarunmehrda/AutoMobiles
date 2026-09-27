@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/anim/entrance.dart';
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/widgets/g_appbar.dart';
 import '../../core/widgets/g_badge.dart';
 import '../../core/widgets/g_field.dart';
 import '../../core/widgets/g_state.dart';
@@ -58,9 +60,10 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
         customer?.phone ?? '',
         vehicle?.regNo ?? '',
         vehicle?.title ?? '',
-      ].any((f) => f.toLowerCase().replaceAll(' ', '').contains(
-            q.replaceAll(' ', ''),
-          ));
+      ].any(
+        (f) =>
+            f.toLowerCase().replaceAll(' ', '').contains(q.replaceAll(' ', '')),
+      );
     }).toList();
   }
 
@@ -72,32 +75,16 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
 
     return Scaffold(
       backgroundColor: p.canvas,
+      appBar: GHeader(
+        title: 'Job Cards'.tr,
+        subtitle: _status.blurb,
+        actions: [GPill(label: '${all.length}', tone: GTone.accent)],
+      ),
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  Gap.page, Gap.sm, Gap.page, Gap.md),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Job cards', style: AppType.d2.c(p.ink)),
-                        Text(_status.blurb,
-                            style: AppType.bodyS.c(p.inkMuted)),
-                      ],
-                    ),
-                  ),
-                  GPill(
-                    label: '${all.length}',
-                    tone: GTone.neutral,
-                  ),
-                ],
-              ),
-            ),
+            const SizedBox(height: Gap.sm),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.page),
               child: GSegmented<JobStatus>(
@@ -112,7 +99,7 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.page),
               child: GSearchBar(
-                hint: 'Number, name, phone or registration',
+                hint: 'Number, name, phone or registration'.tr,
                 controller: _search,
                 onChanged: (v) => setState(() => _query = v),
                 onClear: _query.isEmpty
@@ -129,29 +116,43 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
                   ? GEmptyState(
                       icon: _status.icon,
                       title: _query.isEmpty
-                          ? 'No ${_status.label.toLowerCase()} job cards'
-                          : 'Nothing matches that',
+                          ? 'No {0} job cards'.trf([
+                              _status.label.toLowerCase(),
+                            ])
+                          : 'Nothing matches that'.tr,
                       message: _query.isEmpty
                           ? _status.blurb
-                          : 'Try the job card number, the customer name or '
-                              'the registration.',
-                      actionLabel: _query.isEmpty ? 'Create job card' : null,
+                          : 'Try the job card number, the customer name or the registration.'
+                                .tr,
+                      actionLabel: _query.isEmpty ? 'Create job card'.tr : null,
                       onAction: () => context.push('/job/new'),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(
-                          Gap.page, 0, Gap.page, 110),
-                      itemCount: cards.length + 1,
-                      itemBuilder: (context, i) {
-                        if (i == cards.length) return _Footer(cards: cards);
-                        return Entrance(
-                          index: i.clamp(0, 8),
-                          child: JobCardTile(
-                            card: cards[i],
-                            stampStatus: _status,
-                          ),
-                        );
-                      },
+                  // One clock for the whole list. Without it each row timed
+                  // its own entrance from whenever the list happened to
+                  // build it, so scrolling back re-ran the fade and rows
+                  // past the eighth sat invisible for their share of the
+                  // stagger before popping in.
+                  : EntranceScope(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(
+                          Gap.page,
+                          0,
+                          Gap.page,
+                          110,
+                        ),
+                        itemCount: cards.length + 1,
+                        itemBuilder: (context, i) {
+                          if (i == cards.length) return _Footer(cards: cards);
+                          return Entrance(
+                            key: ValueKey(cards[i].id),
+                            index: i.clamp(0, 8),
+                            child: JobCardTile(
+                              card: cards[i],
+                              stampStatus: _status,
+                            ),
+                          );
+                        },
+                      ),
                     ),
             ),
           ],
@@ -177,15 +178,21 @@ class _Footer extends StatelessWidget {
       padding: const EdgeInsets.only(top: Gap.sm),
       child: Row(
         children: [
-          Text('${cards.length} shown',
-              style: AppType.labelS.c(p.inkFaint)),
+          Text(
+            '{0} shown'.trf([cards.length]),
+            style: AppType.labelS.c(p.inkFaint),
+          ),
           const Spacer(),
-          Text('Billed ${Fmt.money(billed)}',
-              style: AppType.labelS.c(p.inkMuted)),
+          Text(
+            'Billed {0}'.trf([Fmt.money(billed)]),
+            style: AppType.labelS.c(p.inkMuted),
+          ),
           if (due > 0) ...[
             const SizedBox(width: Gap.md),
-            Text('Due ${Fmt.money(due)}',
-                style: AppType.labelS.c(p.danger)),
+            Text(
+              'Due {0}'.trf([Fmt.money(due)]),
+              style: AppType.labelS.c(p.danger),
+            ),
           ],
         ],
       ),

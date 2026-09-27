@@ -3,23 +3,14 @@ import 'package:flutter/material.dart';
 import '../models/entities.dart';
 import '../models/enums.dart';
 
-/// Static catalogue shipped with the app. When Supabase is configured these
-/// rows are replaced by the garage's own catalogue; until then the app runs
-/// fully on this seed so nothing is ever empty.
+/// The service menu the app books against: the categories, packages, add-ons
+/// and coupons on offer, and the brands and models a workshop in India sees.
+///
+/// This is the product catalogue, not a sample of anybody's data. Which
+/// workshop is doing the work, and what they end up charging for it, comes
+/// from that workshop over Supabase — see `Workshop` and `WorkshopCard`.
 class Seed {
   const Seed._();
-
-  static const Garage garage = Garage(
-    name: 'Balaji Automobiles',
-    tagline: 'Your car. Our care.',
-    address: 'Plot 44, Industrial Focal Point, Phase 8, Mohali, Punjab 160055',
-    phone: '+919876543210',
-    whatsapp: '919876543210',
-    gstin: '03AABCG1234M1Z7',
-    rating: 4.8,
-    reviewCount: 2148,
-    openHours: 'Mon–Sat, 9:00 AM – 8:00 PM',
-  );
 
   // -------------------------------------------------------------------------
   // Brands & models

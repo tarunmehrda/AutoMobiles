@@ -59,27 +59,51 @@ class Shadows {
 
   static List<BoxShadow> soft(AppPalette p) => p.isDark
       ? const [
-          BoxShadow(color: Color(0x33000000), blurRadius: 18, offset: Offset(0, 6)),
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
         ]
       : const [
-          BoxShadow(color: Color(0x0A0D1117), blurRadius: 2, offset: Offset(0, 1)),
-          BoxShadow(color: Color(0x0F0D1117), blurRadius: 14, offset: Offset(0, 6)),
+          BoxShadow(
+            color: Color(0x0A0D1117),
+            blurRadius: 2,
+            offset: Offset(0, 1),
+          ),
+          BoxShadow(
+            color: Color(0x0F0D1117),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
         ];
 
   static List<BoxShadow> lifted(AppPalette p) => p.isDark
       ? const [
-          BoxShadow(color: Color(0x4D000000), blurRadius: 28, offset: Offset(0, 12)),
+          BoxShadow(
+            color: Color(0x4D000000),
+            blurRadius: 28,
+            offset: Offset(0, 12),
+          ),
         ]
       : const [
-          BoxShadow(color: Color(0x0D0D1117), blurRadius: 4, offset: Offset(0, 2)),
-          BoxShadow(color: Color(0x140D1117), blurRadius: 28, offset: Offset(0, 14)),
+          BoxShadow(
+            color: Color(0x0D0D1117),
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+          BoxShadow(
+            color: Color(0x140D1117),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
         ];
 
   static List<BoxShadow> accent(AppPalette p) => [
-        BoxShadow(
-          color: p.accent.withValues(alpha: p.isDark ? 0.28 : 0.32),
-          blurRadius: 22,
-          offset: const Offset(0, 10),
-        ),
-      ];
+    BoxShadow(
+      color: p.accent.withValues(alpha: p.isDark ? 0.28 : 0.32),
+      blurRadius: 22,
+      offset: const Offset(0, 10),
+    ),
+  ];
 }

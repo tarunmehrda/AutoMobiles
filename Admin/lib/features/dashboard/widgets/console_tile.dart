@@ -50,15 +50,19 @@ class ConsoleTile extends StatelessWidget {
                 Container(
                   height: 38,
                   width: 38,
-                  decoration:
-                      BoxDecoration(color: t.bg, borderRadius: R.all(R.sm)),
+                  decoration: BoxDecoration(
+                    color: t.bg,
+                    borderRadius: R.all(R.sm),
+                  ),
                   child: Icon(icon, size: 19, color: t.fg),
                 ),
                 const Spacer(),
                 if (badge != null)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: Gap.sm, vertical: 2),
+                      horizontal: Gap.sm,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: t.bg,
                       borderRadius: R.all(R.pill),
@@ -68,10 +72,12 @@ class ConsoleTile extends StatelessWidget {
               ],
             ),
             const Spacer(),
-            Text(title,
-                style: AppType.labelL.c(p.ink),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
+            Text(
+              title,
+              style: AppType.labelL.c(p.ink),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 2),
             Text(
               blurb,

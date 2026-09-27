@@ -1,5 +1,17 @@
 import 'dart:typed_data';
 
-/// The browser has no writable documents directory — the caller falls back to
-/// handing the bytes to the download/share path instead.
+/// The web has no file system to write to — the caller falls back to handing
+/// the bytes to the browser.
 Future<String?> saveDocument(String fileName, Uint8List bytes) async => null;
+
+/// See the io implementation. On the web the browser's own download is the
+/// only route, so this reports that it did not save.
+Future<String?> saveToDownloads(
+  String fileName,
+  Uint8List bytes, {
+  String mime = 'application/pdf',
+}) async => null;
+
+/// On the web a picked image is already a blob URL the page can read, and
+/// there is nowhere else to put it.
+Future<String> keepImage(String path) async => path;

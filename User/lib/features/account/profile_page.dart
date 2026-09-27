@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -27,14 +28,58 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       TextEditingController(text: ref.read(userProvider)?.name ?? '');
   late final _email =
       TextEditingController(text: ref.read(userProvider)?.email ?? '');
+
+  /// Editable, unlike it used to be: a Google account arrives with no number
+  /// at all, and with the field locked there was no way to ever add one —
+  /// so every booking went to the workshop with a blank phone it could not
+  /// match to anybody.
+  late final _phone =
+      TextEditingController(text: ref.read(userProvider)?.phone ?? '');
   late DateTime? _dob = ref.read(userProvider)?.dob;
   late String? _gender = ref.read(userProvider)?.gender;
   bool _dirty = false;
+
+  /// True while the server is deleting the account, so the button spins and
+  /// a second tap cannot send a second request.
+  bool _deleting = false;
+
+  /// Deletes the account for good, on the server and then on this phone.
+  ///
+  /// This used to be a sign-out behind a scarier label: every car, booking
+  /// and invoice came straight back at the next sign-in. A refusal (no
+  /// signal, most likely) keeps the customer here with the reason, signed
+  /// in and with nothing lost; success ends where a sign-out does.
+  Future<void> _deleteAccount() async {
+    final ok = await GFeedback.confirm(
+      context,
+      title: 'Delete your account?',
+      message: 'This is permanent. Your profile, vehicles, bookings and '
+          'saved addresses are deleted from our servers and from this '
+          'phone, and cannot be brought back. Invoices a workshop has '
+          'issued stay with that workshop, as tax law requires.',
+      confirmLabel: 'Delete for good',
+      cancelLabel: 'Keep account',
+      destructive: true,
+      icon: Icons.warning_amber_rounded,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _deleting = true);
+    final error =
+        await ref.read(appControllerProvider.notifier).deleteAccount();
+    if (!mounted) return;
+    if (error != null) {
+      setState(() => _deleting = false);
+      GFeedback.error(context, error);
+      return;
+    }
+    context.go('/login');
+  }
 
   @override
   void dispose() {
     _name.dispose();
     _email.dispose();
+    _phone.dispose();
     super.dispose();
   }
 
@@ -43,8 +88,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       GFeedback.error(context, 'Please enter your name');
       return;
     }
+    final phone = _phone.text.trim();
+    if (phone.isNotEmpty && phone.length != 10) {
+      GFeedback.error(context, 'Enter your 10-digit mobile number');
+      return;
+    }
     ref.read(appControllerProvider.notifier).saveProfile(
           name: _name.text.trim(),
+          phone: phone,
           email: _email.text.trim().isEmpty ? null : _email.text.trim(),
           dob: _dob,
           gender: _gender,
@@ -105,11 +156,17 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             index: 2,
             child: GField(
               label: 'Mobile number',
-              initialValue: user?.phone ?? '',
-              enabled: false,
-              helper: 'Contact support to change your registered number',
-              suffix:
-                  Icon(Icons.verified_rounded, size: 18, color: p.success),
+              hint: '10-digit number',
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              textCapitalization: TextCapitalization.none,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
+              helper: 'So your garage can match your bookings and reach you',
+              onChanged: (_) => setState(() => _dirty = true),
+              prefix: Icon(Icons.phone_outlined, size: 19, color: p.inkMuted),
             ),
           ),
           const SizedBox(height: Gap.lg),
@@ -198,22 +255,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               size: GButtonSize.md,
               expand: true,
               icon: Icons.delete_outline_rounded,
-              onPressed: () async {
-                final ok = await GFeedback.confirm(
-                  context,
-                  title: 'Delete account?',
-                  message:
-                      'This clears your profile, vehicles and saved addresses '
-                      'from this device. Invoices are retained by the workshop '
-                      'as tax law requires.',
-                  confirmLabel: 'Delete',
-                  destructive: true,
-                  icon: Icons.warning_amber_rounded,
-                );
-                if (!ok || !context.mounted) return;
-                await ref.read(appControllerProvider.notifier).signOut();
-                if (context.mounted) context.go('/login');
-              },
+              loading: _deleting,
+              onPressed: _deleting ? null : _deleteAccount,
             ),
           ),
         ],

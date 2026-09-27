@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
@@ -11,6 +12,7 @@ import '../../core/widgets/g_badge.dart';
 import '../../core/widgets/g_button.dart';
 import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_field.dart';
+import '../../core/widgets/g_art.dart';
 import '../../core/widgets/g_state.dart';
 import '../../core/widgets/pressable.dart';
 import '../../data/models/entities.dart';
@@ -31,8 +33,8 @@ class StaffPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(
-        title: 'Mechanics',
-        subtitle: '${staff.length} on the team',
+        title: 'Mechanics'.tr,
+        subtitle: '{0} on the team'.trf([staff.length]),
         actions: [
           GIconButton(
             icon: Icons.add_rounded,
@@ -44,25 +46,32 @@ class StaffPage extends ConsumerWidget {
       body: staff.isEmpty
           ? GEmptyState(
               icon: Icons.engineering_rounded,
-              title: 'No mechanics yet',
+              title: 'No mechanics yet'.tr,
+              art: Art.customers,
               message:
-                  'Add the team so work can be assigned per job card and per '
-                  'line on the mechanic copy.',
-              actionLabel: 'Add a mechanic',
+                  'Add the team so work can be assigned per job card and per line on the mechanic copy.'
+                      .tr,
+              actionLabel: 'Add a mechanic'.tr,
               onAction: () => _editor(context, ref, null),
             )
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(
-                  Gap.page, Gap.md, Gap.page, Gap.h2),
+                Gap.page,
+                Gap.md,
+                Gap.page,
+                Gap.h2,
+              ),
               itemCount: staff.length,
               itemBuilder: (context, i) {
                 final s = staff[i];
                 // How much work is sitting with this mechanic right now.
                 final live = data.jobCards
-                    .where((j) =>
-                        j.isOpen &&
-                        (j.mechanicIds.contains(s.id) ||
-                            j.items.any((e) => e.mechanicId == s.id)))
+                    .where(
+                      (j) =>
+                          j.isOpen &&
+                          (j.mechanicIds.contains(s.id) ||
+                              j.items.any((e) => e.mechanicId == s.id)),
+                    )
                     .length;
 
                 return Pressable(
@@ -102,13 +111,13 @@ class StaffPage extends ConsumerWidget {
                         ),
                         if (!s.active)
                           GPill(
-                            label: 'Inactive',
+                            label: 'Inactive'.tr,
                             tone: GTone.neutral,
                             compact: true,
                           )
                         else if (live > 0)
                           GPill(
-                            label: '$live on the floor',
+                            label: '{0} on the floor'.trf([live]),
                             tone: GTone.accent,
                             compact: true,
                           ),
@@ -133,25 +142,34 @@ class StaffPage extends ConsumerWidget {
 
     await GFeedback.sheet<void>(
       context,
-      title: existing == null ? 'Add a mechanic' : existing.name,
+      title: existing == null ? 'Add a mechanic'.tr : existing.name,
+      // Owned by the sheet, not by this function: its future completes
+      // when the sheet starts closing, and the fields go on reading these
+      // all the way through the exit transition.
+      disposing: [name, phone, skill],
       child: StatefulBuilder(
         builder: (context, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page,
-              MediaQuery.of(context).viewInsets.bottom + Gap.h1),
+          padding: EdgeInsets.fromLTRB(
+            Gap.page,
+            Gap.lg,
+            Gap.page,
+            MediaQuery.of(context).viewInsets.bottom + Gap.h1,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               GField(
-                label: 'Name',
+                label: 'Name'.tr,
+                hint: 'Rahul Sharma'.tr,
                 controller: name,
                 autofocus: existing == null,
                 textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: Gap.lg),
               GField(
-                label: 'Phone',
-                hint: 'Optional',
+                label: 'Phone'.tr,
+                hint: 'Optional'.tr,
                 controller: phone,
                 keyboardType: TextInputType.phone,
                 textCapitalization: TextCapitalization.none,
@@ -162,8 +180,8 @@ class StaffPage extends ConsumerWidget {
               ),
               const SizedBox(height: Gap.lg),
               GField(
-                label: 'Speciality',
-                hint: 'Engine, electrical, denting…',
+                label: 'Speciality'.tr,
+                hint: 'Engine, electrical, denting…'.tr,
                 controller: skill,
                 textCapitalization: TextCapitalization.words,
               ),
@@ -175,12 +193,15 @@ class StaffPage extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Active',
-                              style:
-                                  AppType.labelL.c(context.c.ink)),
-                          Text('Inactive mechanics stay on old job cards '
-                              'but cannot be assigned new work',
-                              style: AppType.bodyS.c(context.c.inkMuted)),
+                          Text(
+                            'Active'.tr,
+                            style: AppType.labelL.c(context.c.ink),
+                          ),
+                          Text(
+                            'Inactive mechanics stay on old job cards but cannot be assigned new work'
+                                .tr,
+                            style: AppType.bodyS.c(context.c.inkMuted),
+                          ),
                         ],
                       ),
                     ),
@@ -197,7 +218,7 @@ class StaffPage extends ConsumerWidget {
                   if (existing != null) ...[
                     Expanded(
                       child: GButton(
-                        label: 'Remove',
+                        label: 'Remove'.tr,
                         kind: GButtonKind.danger,
                         size: GButtonSize.md,
                         onPressed: () {
@@ -213,10 +234,20 @@ class StaffPage extends ConsumerWidget {
                   Expanded(
                     flex: 2,
                     child: GButton.accent(
-                      label: existing == null ? 'Add' : 'Save',
+                      label: existing == null ? 'Add'.tr : 'Save'.tr,
                       size: GButtonSize.md,
                       onPressed: () {
-                        if (name.text.trim().isEmpty) return;
+                        // A mechanic with no name cannot be told apart on
+                        // the assign list or the mechanic copy, so a blank
+                        // name is still refused. It used to be refused in
+                        // silence: the button looked dead and the counter
+                        // kept tapping it. Saying why is the whole fix. The
+                        // phone and speciality stay optional, so they get
+                        // no such check.
+                        if (name.text.trim().isEmpty) {
+                          GFeedback.error(context, 'Enter a name first.'.tr);
+                          return;
+                        }
                         final ctrl = ref.read(adminProvider.notifier);
                         if (existing == null) {
                           ctrl.addStaff(
@@ -225,12 +256,14 @@ class StaffPage extends ConsumerWidget {
                             skill: skill.text.trim(),
                           );
                         } else {
-                          ctrl.updateStaff(existing.copyWith(
-                            name: name.text.trim(),
-                            phone: phone.text.trim(),
-                            skill: skill.text.trim(),
-                            active: active,
-                          ));
+                          ctrl.updateStaff(
+                            existing.copyWith(
+                              name: name.text.trim(),
+                              phone: phone.text.trim(),
+                              skill: skill.text.trim(),
+                              active: active,
+                            ),
+                          );
                         }
                         Navigator.of(context).pop();
                       },
@@ -243,9 +276,5 @@ class StaffPage extends ConsumerWidget {
         ),
       ),
     );
-
-    for (final c in [name, phone, skill]) {
-      c.dispose();
-    }
   }
 }

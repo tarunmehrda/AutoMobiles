@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
@@ -11,16 +12,21 @@ import '../../core/widgets/g_badge.dart';
 import '../../core/widgets/g_button.dart';
 import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_field.dart';
+import '../../core/widgets/g_art.dart';
 import '../../core/widgets/g_state.dart';
 import '../../core/widgets/pressable.dart';
 import '../../data/models/enums.dart';
 import '../../state/admin_state.dart';
 import '../../state/providers.dart';
+import 'documents/doc_sections.dart';
+import 'documents/invoice_format.dart';
 import 'documents/job_document.dart';
 import 'widgets/close_sheet.dart';
+import 'widgets/complete_sheet.dart';
 import 'widgets/ledger_tabs.dart';
 import 'widgets/panel_strip.dart';
 import 'widgets/share_sheet.dart';
+import 'widgets/template_picker.dart';
 import 'widgets/vehicle_header.dart';
 
 /// One job card, seen three ways. The document on screen is the thing that
@@ -44,6 +50,34 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
   late DocKind _doc = widget.initialDoc;
   final _captureKey = GlobalKey();
 
+  /// Which of the five templates this card is being read and sent on, and
+  /// which optional blocks ride on it.
+  ///
+  /// Held here rather than on the share sheet so the document underneath
+  /// redraws as it is picked — the counter chooses a template by looking at
+  /// one, not by reading its name off a chip and finding out at the printer.
+  late InvoiceFormat _format = ShareSheet.lastFormat;
+  late Set<DocSection> _sections = DocSectionX.defaultsFor(
+    _format,
+    widget.initialDoc,
+  );
+
+  void _setTemplate(InvoiceFormat format, Set<DocSection> sections) {
+    setState(() {
+      _format = format;
+      _sections = sections;
+      ShareSheet.lastFormat = format;
+    });
+  }
+
+  /// The estimate, the invoice and the mechanic copy do not offer the same
+  /// blocks — no money on the floor copy — so the ticks are re-derived when
+  /// the tab changes rather than carried across and silently dropped.
+  void _setDoc(DocKind doc) => setState(() {
+    _doc = doc;
+    _sections = DocSectionX.defaultsFor(_format, doc);
+  });
+
   @override
   Widget build(BuildContext context) {
     final p = context.c;
@@ -53,11 +87,15 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
     if (card == null || garage == null) {
       return Scaffold(
         backgroundColor: p.canvas,
-        appBar: const GHeader(title: 'Job card'),
-        body: const GEmptyState(
+        appBar: GHeader(
+          title: 'Job Card'.tr,
+          subtitle: 'Estimate, invoice and mechanic copy'.tr,
+        ),
+        body: GEmptyState(
           icon: Icons.description_outlined,
-          title: 'Job card not found',
-          message: 'It may have been deleted from another screen.',
+          title: 'Job card not found'.tr,
+          art: Art.searching,
+          message: 'It may have been deleted from another screen.'.tr,
         ),
       );
     }
@@ -74,6 +112,24 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
         title: _doc.label,
         subtitle: '${card.number} • ${card.status.label}',
         actions: [
+          // One tap to the PDF, rather than two through the share sheet:
+          // downloading the bill is the thing a counter does most.
+          GIconButton(
+            icon: Icons.download_rounded,
+            size: 40,
+            tooltip: 'Download PDF'.tr,
+            onTap: () => ShareSheet.download(
+              context,
+              kind: _doc,
+              card: card,
+              garage: garage,
+              format: _format,
+              sections: _sections,
+              customer: customer,
+              vehicle: vehicle,
+              staff: staff,
+            ),
+          ),
           GIconButton(
             icon: Icons.more_horiz_rounded,
             size: 40,
@@ -91,16 +147,38 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(
-                  Gap.page, Gap.lg, Gap.page, Gap.xxl),
+                Gap.page,
+                Gap.lg,
+                Gap.page,
+                Gap.xxl,
+              ),
               children: [
                 if (card.items.isNotEmpty && !card.settled)
                   _BalanceBanner(amount: card.balance),
+                // The other way round: more taken than billed. A settled
+                // card says nothing on its own, so the money owed back
+                // would otherwise be invisible here.
+                if (card.excess > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: Gap.lg),
+                    child: ExcessNote(amount: card.excess),
+                  ),
 
                 GSegmented<DocKind>(
                   options: DocKind.values,
                   selected: _doc,
-                  onSelect: (d) => setState(() => _doc = d),
+                  onSelect: _setDoc,
                   labelOf: (d) => d.label,
+                ),
+                const SizedBox(height: Gap.md),
+
+                TemplatePicker(
+                  kind: _doc,
+                  card: card,
+                  garage: garage,
+                  format: _format,
+                  sections: _sections,
+                  onChanged: _setTemplate,
                 ),
                 const SizedBox(height: Gap.lg),
 
@@ -115,6 +193,8 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
                     customer: customer,
                     vehicle: vehicle,
                     staff: staff,
+                    format: _format,
+                    sections: _sections,
                   ),
                 ),
 
@@ -139,7 +219,7 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
           children: [
             Expanded(
               child: GButton(
-                label: 'Share',
+                label: 'Share'.tr,
                 kind: GButtonKind.outline,
                 size: GButtonSize.lg,
                 icon: Icons.ios_share_rounded,
@@ -153,11 +233,16 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
                   vehicle: vehicle,
                   staff: staff,
                   captureKey: _captureKey,
+                  format: _format,
+                  sections: _sections,
+                  onTemplate: _setTemplate,
                 ),
               ),
             ),
             const SizedBox(width: Gap.md),
-            Expanded(child: _PrimaryAction(id: card.id, onDoc: _showInvoice)),
+            Expanded(
+              child: _PrimaryAction(id: card.id, onDoc: _showInvoice),
+            ),
           ],
         ),
       ),
@@ -171,16 +256,16 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
     if (card == null) return;
     GFeedback.sheet<void>(
       context,
-      title: 'Job card ${card.number}',
-      subtitle: 'Opened ${Fmt.fullDateTime(card.createdAt)}',
+      title: 'Job card {0}'.trf([card.number]),
+      subtitle: 'Opened {0}'.trf([Fmt.fullDateTime(card.createdAt)]),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             GOptionRow(
-              label: 'Edit items',
-              subtitle: 'Jobs, spares and lubes',
+              label: 'Edit items'.tr,
+              subtitle: 'Jobs, spares and lubes'.tr,
               icon: Icons.edit_note_rounded,
               selected: false,
               onTap: () {
@@ -190,30 +275,31 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
             ),
             if (!card.isOpen)
               GOptionRow(
-                label: 'Reopen on the floor',
-                subtitle: 'Moves it back to Open and drops pending reminders',
+                label: 'Reopen on the floor'.tr,
+                subtitle:
+                    'Moves it back to Open and drops pending reminders'.tr,
                 icon: Icons.lock_open_rounded,
                 selected: false,
                 onTap: () {
                   Navigator.of(context).pop();
                   ref.read(adminProvider.notifier).reopenJobCard(id);
-                  GFeedback.info(context, 'Back on the floor.');
+                  GFeedback.info(context, 'Back on the floor.'.tr);
                 },
               ),
             GOptionRow(
-              label: 'Delete job card',
-              subtitle: 'Parts go back to stock. This cannot be undone.',
+              label: 'Delete job card'.tr,
+              subtitle: 'Parts go back to stock. This cannot be undone.'.tr,
               icon: Icons.delete_outline_rounded,
               selected: false,
               onTap: () async {
                 Navigator.of(context).pop();
                 final ok = await GFeedback.confirm(
                   context,
-                  title: 'Delete ${card.number}?',
+                  title: 'Delete {0}?'.trf([card.number]),
                   message:
-                      'The card, its bill and its message trail go for good. '
-                      'Any parts on it return to stock.',
-                  confirmLabel: 'Delete',
+                      'The card, its bill and its message trail go for good. Any parts on it return to stock.'
+                          .tr,
+                  confirmLabel: 'Delete'.tr,
                   destructive: true,
                   icon: Icons.delete_outline_rounded,
                 );
@@ -243,7 +329,7 @@ class _PrimaryAction extends ConsumerWidget {
 
     if (card.isClosed) {
       return GButton(
-        label: 'Done',
+        label: 'Done'.tr,
         kind: GButtonKind.primary,
         onPressed: () => context.pop(),
       );
@@ -251,13 +337,13 @@ class _PrimaryAction extends ConsumerWidget {
 
     if (card.status == JobStatus.complete) {
       return GButton.accent(
-        label: 'Close card',
+        label: 'Close card'.tr,
         icon: Icons.lock_rounded,
         onPressed: () async {
           final closed = await showCloseSheet(context, ref, card);
           if (closed && context.mounted) {
             onDoc();
-            GFeedback.success(context, '${card.number} closed.');
+            GFeedback.success(context, '{0} closed.'.trf([card.number]));
           }
         },
       );
@@ -265,20 +351,21 @@ class _PrimaryAction extends ConsumerWidget {
 
     if (!card.canComplete) {
       return GButton.accent(
-        label: 'Add items',
+        label: 'Add items'.tr,
         icon: Icons.add_rounded,
         onPressed: () => context.push('/job/$id/items'),
       );
     }
 
+    // One button covers both ends of the counter's day: saving the advance
+    // and discount on a card still on the floor, and pushing a finished one
+    // through to Complete.
     return GButton.accent(
-      label: 'Mark complete',
+      label: 'Update or Complete'.tr,
       icon: Icons.task_alt_rounded,
-      onPressed: () {
-        if (ref.read(adminProvider.notifier).markComplete(id)) {
-          onDoc();
-          GFeedback.success(context, 'Work marked complete.');
-        }
+      onPressed: () async {
+        final outcome = await showCompleteSheet(context, ref, card);
+        if (outcome == CompleteOutcome.completed) onDoc();
       },
     );
   }
@@ -294,8 +381,7 @@ class _BalanceBanner extends StatelessWidget {
     final p = context.c;
     return Container(
       margin: const EdgeInsets.only(bottom: Gap.lg),
-      padding:
-          const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.md),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.md),
       decoration: BoxDecoration(
         color: p.dangerSoft,
         borderRadius: R.all(R.md),
@@ -303,14 +389,15 @@ class _BalanceBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.account_balance_wallet_rounded,
-              size: 18, color: p.danger),
+          Icon(Icons.account_balance_wallet_rounded, size: 18, color: p.danger),
           const SizedBox(width: Gap.md),
           Expanded(
-            child: Text('Pending balance ${Fmt.money2(amount)}',
-                style: AppType.labelL.c(p.danger)),
+            child: Text(
+              'Pending balance {0}'.trf([Fmt.money2(amount)]),
+              style: AppType.labelL.c(p.danger),
+            ),
           ),
-          GPill(label: 'Unsettled', tone: GTone.danger, compact: true),
+          GPill(label: 'Unsettled'.tr, tone: GTone.danger, compact: true),
         ],
       ),
     );
@@ -331,32 +418,45 @@ class _EmptyBillPrompt extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(Gap.lg),
         decoration: BoxDecoration(
-          color: p.surfaceAlt,
-          borderRadius: R.all(R.md),
-          border: Border.all(color: p.line),
+          color: p.isDark
+              ? Color.alphaBlend(p.accent.withValues(alpha: 0.10), p.surface)
+              : Color.alphaBlend(
+                  p.accent.withValues(alpha: 0.08),
+                  Colors.white,
+                ),
+          borderRadius: R.all(R.lg),
+          border: Border.all(color: p.accent.withValues(alpha: 0.18)),
         ),
         child: Row(
           children: [
-            Container(
-              height: 40,
-              width: 40,
-              decoration: BoxDecoration(
-                  color: p.accentSoft, borderRadius: R.all(R.sm)),
-              child: Icon(Icons.add_shopping_cart_rounded,
-                  size: 19, color: p.accentInk),
-            ),
+            const GArt(Art.invoice, height: 70),
             const SizedBox(width: Gap.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Nothing billed yet', style: AppType.labelL.c(p.ink)),
-                  Text('Add jobs, spares and lubes to build the bill',
-                      style: AppType.bodyS.c(p.inkMuted)),
+                  Text(
+                    'Nothing billed yet'.tr,
+                    style: AppType.labelL.s(14.5).c(p.ink).w(FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Add jobs, spares and lubes to build the bill'.tr,
+                    style: AppType.bodyS.s(11.5).c(p.inkMuted),
+                  ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: p.inkFaint, size: 22),
+            const SizedBox(width: Gap.sm),
+            Container(
+              height: 30,
+              width: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: p.accent,
+              ),
+              child: Icon(Icons.add_rounded, size: 19, color: p.onAccent),
+            ),
           ],
         ),
       ),

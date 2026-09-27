@@ -24,7 +24,6 @@ class SupabaseGateway {
 
   static final SupabaseGateway instance = SupabaseGateway._();
 
-  static const String remoteOtpSent = '__remote__';
 
   Timer? _debounce;
   Timer? _pingDebounce;
@@ -145,30 +144,72 @@ class SupabaseGateway {
     final client = _client;
     if (uid == null || client == null || data.user == null) return;
 
-    try {
-      final profile = {...data.user!.toJson(), 'id': uid};
-      if (_changed('profiles', uid, profile)) {
+    final profile = {...data.user!.toJson(), 'id': uid};
+    if (_changed('profiles', uid, profile)) {
+      await _step('profile', () async {
         await client.from('profiles').upsert(profile);
         _remember('profiles', uid, profile);
-      }
+      });
+    }
 
-      await _sync(client, 'vehicles', uid, data.vehicles,
-          id: (e) => e.id, json: (e) => e.toJson());
-      await _sync(client, 'addresses', uid, data.addresses,
-          id: (e) => e.id, json: (e) => e.toJson());
-      await _sync(client, 'bookings', uid, data.bookings,
-          id: (e) => e.id, json: (e) => e.toJson());
-      await _sync(client, 'inspections', uid, data.inspections.values.toList(),
-          id: (e) => e.id, json: (e) => e.toJson());
-      await _sync(
-          client, 'estimates', uid, data.estimates.values.expand((e) => e).toList(),
-          id: (e) => e.id, json: (e) => e.toJson());
-      await _sync(client, 'invoices', uid, data.invoices.values.toList(),
-          id: (e) => e.id, json: (e) => e.toJson());
-      await _sync(client, 'notifications', uid, data.notifications.take(50).toList(),
-          id: (e) => e.id, json: (e) => e.toJson());
+    // Vehicles and addresses are the two the customer can actually remove,
+    // so they are the two swept: without it a deleted car stays upstream
+    // and walks back in on the next hydrate.
+    await _step(
+        'vehicles',
+        () => _sync(client, 'vehicles', uid, data.vehicles,
+            id: (e) => e.id, json: (e) => e.toJson(), sweep: true));
+    await _step(
+        'addresses',
+        () => _sync(client, 'addresses', uid, data.addresses,
+            id: (e) => e.id, json: (e) => e.toJson(), sweep: true));
+    await _step(
+        'bookings',
+        () => _sync(client, 'bookings', uid, data.bookings,
+            id: (e) => e.id, json: (e) => e.toJson()));
+    await _step(
+        'inspections',
+        () => _sync(client, 'inspections', uid, data.inspections.values.toList(),
+            id: (e) => e.id, json: (e) => e.toJson()));
+    // Not the quotes mirrored from a workshop's job card (`est-<card id>`).
+    // Those are the garage's figures, rebuilt from the card on every refresh,
+    // and they are stored as approved — which the database makes immutable.
+    // Pushing one again after the card changed was refused every time, and
+    // the estimates step failed on every push from then on.
+    await _step(
+        'estimates',
+        () => _sync(client, 'estimates', uid,
+            data.estimates.values
+                .expand((e) => e)
+                .where((e) => !e.id.startsWith('est-'))
+                .toList(),
+            id: (e) => e.id, json: (e) => e.toJson()));
+    await _step(
+        'invoices',
+        () => _sync(client, 'invoices', uid, data.invoices.values.toList(),
+            id: (e) => e.id, json: (e) => e.toJson()));
+    // Deliberately not swept: only the newest fifty go up, so everything
+    // older than that would read as deleted.
+    await _step(
+        'notifications',
+        () => _sync(client, 'notifications', uid,
+            data.notifications.take(50).toList(),
+            id: (e) => e.id, json: (e) => e.toJson()));
+  }
+
+  /// Runs one step of a push, keeping a failure local to that step.
+  ///
+  /// One row the database refuses — an approved estimate, which is
+  /// immutable by trigger, is the likely one — used to abort the push from
+  /// wherever it happened, so every table after it stopped syncing and
+  /// stayed stopped. Local state is authoritative either way, and a failed
+  /// step's rows stay marked dirty for the next attempt.
+  Future<void> _step(String what, Future<void> Function() body) async {
+    try {
+      await body();
     } catch (e) {
-      debugPrint('push failed (local state is still authoritative): $e');
+      debugPrint('push step "$what" failed '
+          '(local state is still authoritative): $e');
     }
   }
 
@@ -179,6 +220,9 @@ class SupabaseGateway {
   /// booking, every notification, each time a checkbox moved. On a phone
   /// connection that is the difference between a sync you never notice and
   /// one you watch happen.
+  /// [sweep] also removes the rows upstream that this device no longer has.
+  /// Only ever for ids we know we wrote or read, and only for a list that is
+  /// the complete set — a truncated one would read as a pile of deletions.
   Future<void> _sync<T>(
     SupabaseClient client,
     String table,
@@ -186,6 +230,7 @@ class SupabaseGateway {
     List<T> rows, {
     required String Function(T) id,
     required Map<String, dynamic> Function(T) json,
+    bool sweep = false,
   }) async {
     final changed = <Map<String, dynamic>>[];
     for (final row in rows) {
@@ -193,10 +238,37 @@ class SupabaseGateway {
       if (!_changed(table, id(row), body)) continue;
       changed.add({...body, 'user_id': uid});
     }
-    if (changed.isEmpty) return;
-    await client.from(table).upsert(changed);
-    for (final row in rows) {
-      _remember(table, id(row), json(row));
+    if (changed.isNotEmpty) {
+      await client.from(table).upsert(changed);
+      for (final row in rows) {
+        _remember(table, id(row), json(row));
+      }
+    }
+    if (sweep) {
+      await _deleteMissing(client, table, uid, {for (final r in rows) id(r)});
+    }
+  }
+
+  /// Removes rows upstream that this device has dropped. Scoped to the
+  /// signed-in user, and only for ids this device has actually seen — a row
+  /// added on another phone that has not reached us yet is left alone.
+  Future<void> _deleteMissing(
+    SupabaseClient client,
+    String table,
+    String uid,
+    Set<String> keep,
+  ) async {
+    final prefix = '$table/';
+    final gone = <String>[];
+    for (final key in _written.keys) {
+      if (!key.startsWith(prefix)) continue;
+      final id = key.substring(prefix.length);
+      if (!keep.contains(id)) gone.add(id);
+    }
+    if (gone.isEmpty) return;
+    await client.from(table).delete().eq('user_id', uid).inFilter('id', gone);
+    for (final id in gone) {
+      _written.remove('$table/$id');
     }
   }
 
@@ -283,9 +355,13 @@ class SupabaseGateway {
   /// Read from the `my_job_cards` view, which is filtered to `auth.uid()` in
   /// the database itself — there is no client-side filter to get wrong, and
   /// no way to ask for somebody else's car.
-  Future<List<WorkshopCard>> workshopCards() async {
+  ///
+  /// Null when the question could not be asked — offline, or signed out —
+  /// so a pull-to-refresh can say "could not reach the workshop" instead of
+  /// quietly showing the same screen as if nothing had changed.
+  Future<List<WorkshopCard>?> workshopCards() async {
     final client = _client;
-    if (client == null || userId == null) return const [];
+    if (client == null || userId == null) return null;
     try {
       final rows = await client
           .from('my_job_cards')
@@ -297,7 +373,7 @@ class SupabaseGateway {
       ];
     } catch (e) {
       debugPrint('workshop cards unavailable: $e');
-      return const [];
+      return null;
     }
   }
 
@@ -360,16 +436,51 @@ class SupabaseGateway {
   /// The garage this customer is linked to, as that garage filled it in.
   ///
   /// `garages` is readable here only for a workshop the account has actually
-  /// dealt with — the policy is `deals_with_garage(id)`, not a directory —
-  /// so this returns the one they were handed a code by, or nothing.
-  Future<Workshop?> linkedWorkshop() async {
+  /// dealt with — the policy is `deals_with_garage(id)`, not a directory.
+  ///
+  /// [preferId] is the workshop this customer last booked with or had a card
+  /// at, and wins when it is readable. It used to be `limit(1)` with no order
+  /// at all, so a customer of two workshops got whichever one Postgres
+  /// returned first — on Home, on every booking card and on the help page.
+  Future<Workshop?> linkedWorkshop({String? preferId}) async {
     final client = _client;
     if (client == null || userId == null) return null;
     try {
-      final rows = await client.from('garages').select().limit(1);
-      final list = rows as List;
-      if (list.isEmpty) return null;
-      return Workshop.fromJson(Map<String, dynamic>.from(list.first as Map));
+      List rows = const [];
+      if (preferId != null && preferId.isNotEmpty) {
+        rows = await client.from('garages').select().eq('id', preferId);
+      }
+      if (rows.isEmpty) {
+        rows = await client
+            .from('garages')
+            .select()
+            .order('created_at', ascending: false)
+            .limit(1);
+      }
+      if (rows.isEmpty) return null;
+      final shop = Map<String, dynamic>.from(rows.first as Map);
+
+      // The menu this workshop publishes. Row level security already limits
+      // it to a shop the account deals with, so there is no client-side
+      // filter to get wrong. An empty list is a real answer — a workshop
+      // that has not put anything on its page yet — and the booking screen
+      // says so rather than inventing a menu. A workshop that has switched
+      // its online shopfront off (`online_on`, 20_*.sql) offers none.
+      if (shop['online_on'] == false) {
+        shop['services'] = const [];
+      } else {
+        try {
+          shop['services'] = await client
+              .from('online_services')
+              .select('id, name, price, blurb, duration_mins')
+              .eq('garage_id', shop['id'] as Object)
+              .order('name');
+        } catch (e) {
+          // A workshop with no menu is still a workshop worth showing.
+          debugPrint('workshop menu unavailable: $e');
+        }
+      }
+      return Workshop.fromJson(shop);
     } catch (e) {
       debugPrint('linked workshop unavailable: $e');
       return null;
@@ -382,44 +493,180 @@ class SupabaseGateway {
   ///
   /// Keyed by request id, which is `req-<bookingId>` — the same id the app
   /// sent up, so a row here maps straight back onto a booking.
-  Future<Map<String, Map<String, dynamic>>> myBookingRequests() async {
+  ///
+  /// Null when the question could not be asked (offline, signed out), which
+  /// is not the same answer as "no requests": a request missing from a real
+  /// answer is one the workshop removed, and reading a failed call that way
+  /// would mark every booking declined the first time the network dropped.
+  ///
+  /// Filtered to this account even though row level security already is:
+  /// a customer who also runs a workshop can read that workshop's whole
+  /// front desk, and those are not their bookings.
+  Future<Map<String, Map<String, dynamic>>?> myBookingRequests() async {
     final client = _client;
-    if (client == null || userId == null) return const {};
+    final uid = userId;
+    if (client == null || uid == null) return null;
     try {
       final rows = await client
           .from('garage_bookings')
-          .select('id, garage_id, accepted, job_card_id, at');
+          .select('id, garage_id, accepted, job_card_id, at')
+          .eq('profile_id', uid);
       return {
         for (final r in (rows as List))
           ((r as Map)['id'] ?? '').toString(): Map<String, dynamic>.from(r),
       };
     } catch (e) {
       debugPrint('booking requests unavailable: $e');
-      return const {};
+      return null;
     }
   }
 
-  /// The workshops this customer has been linked to, as
-  /// `{garage_id, customer_id}` pairs.
-  ///
-  /// The list comes straight from `garage_customers`, which row level
-  /// security filters to `profile_id = auth.uid()` — so it can only ever be
-  /// the workshops that handed this person a code.
-  Future<List<Map<String, String>>> linkedWorkshops() async {
+  /// Takes a request back off the workshop's front desk. The policy allows it
+  /// only while the counter has not accepted it; after that it is a job card,
+  /// and calling off work already under way is a phone call. True when the
+  /// request is gone (or was never there).
+  Future<bool> withdrawWorkshopBooking(String requestId) async {
     final client = _client;
-    if (client == null || userId == null) return const [];
+    final uid = userId;
+    if (client == null || uid == null) return false;
     try {
-      final rows = await client.from('garage_customers').select('id, garage_id');
-      return [
-        for (final r in (rows as List))
-          {
-            'customer_id': ((r as Map)['id'] ?? '').toString(),
-            'garage_id': (r['garage_id'] ?? '').toString(),
-          }
-      ];
+      final gone = await client
+          .from('garage_bookings')
+          .delete()
+          .eq('id', requestId)
+          .eq('profile_id', uid)
+          .select('id');
+      if ((gone as List).isNotEmpty) return true;
+      // Nothing deleted: either it never arrived (fine) or the counter has
+      // accepted it and the policy kept it (not fine). Ask which.
+      final still = await client
+          .from('garage_bookings')
+          .select('id')
+          .eq('id', requestId)
+          .maybeSingle();
+      return still == null;
     } catch (e) {
-      debugPrint('linked workshops unavailable: $e');
-      return const [];
+      debugPrint('withdraw booking request failed: $e');
+      return false;
+    }
+  }
+
+  /// Moves a request the counter has not accepted yet to a new slot. The
+  /// policy (20_*.sql) lets the customer change the time and nothing else,
+  /// and only before acceptance. True when it moved — or was never on the
+  /// desk, so there is nothing there to be wrong.
+  Future<bool> rescheduleWorkshopBooking(String requestId, DateTime at) async {
+    final client = _client;
+    final uid = userId;
+    if (client == null || uid == null) return false;
+    try {
+      final moved = await client
+          .from('garage_bookings')
+          .update({'at': at.toUtc().toIso8601String()})
+          .eq('id', requestId)
+          .eq('profile_id', uid)
+          .select('id');
+      if ((moved as List).isNotEmpty) return true;
+      final still = await client
+          .from('garage_bookings')
+          .select('id')
+          .eq('id', requestId)
+          .maybeSingle();
+      return still == null;
+    } catch (e) {
+      debugPrint('reschedule booking request failed: $e');
+      return false;
+    }
+  }
+
+  /// Leaves (or changes) this customer's rating of a job card. One review
+  /// per card: `reviews_unique_card` makes a second one an edit of the
+  /// first. Returns an error sentence, or null.
+  Future<String?> saveReview({
+    required String garageId,
+    required String jobCardId,
+    required int stars,
+    String comment = '',
+  }) async {
+    final client = _client;
+    final uid = userId;
+    if (client == null || uid == null) {
+      return 'Connect to the internet to rate the workshop.';
+    }
+    try {
+      await client.from('reviews').upsert({
+        'id': 'rv-$jobCardId',
+        'garage_id': garageId,
+        'job_card_id': jobCardId,
+        'profile_id': uid,
+        'stars': stars.clamp(1, 5),
+        'comment': comment.trim(),
+      }, onConflict: 'job_card_id');
+      return null;
+    } catch (e) {
+      debugPrint('save review failed: $e');
+      return 'Could not send your rating. Try again in a moment.';
+    }
+  }
+
+  /// Deletes the account on the server — the sign-in and everything the
+  /// customer owns (`delete_my_account()`, 20_*.sql). Returns an error
+  /// sentence, or null.
+  Future<String?> deleteAccount() async {
+    final client = _client;
+    if (client == null || userId == null) {
+      return 'Connect to the internet to delete your account.';
+    }
+    try {
+      await client.rpc('delete_my_account');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('delete_my_account failed (${e.code}): ${e.message}');
+      if (e.message.contains('runs a workshop')) {
+        return 'This account runs a workshop. Contact support to close it, '
+            'so the workshop\'s records are not lost with it.';
+      }
+      if (e.code == 'PGRST202') {
+        return 'Account deletion is not switched on for this project yet. '
+            'Contact support and we will delete it for you.';
+      }
+      return 'Could not delete the account. Try again in a moment.';
+    } catch (e) {
+      debugPrint('delete_my_account failed: $e');
+      return 'Could not delete the account. Try again in a moment.';
+    }
+  }
+
+  /// Files this phone's push token under the signed-in customer
+  /// (22_customer_push.sql). Called on every sign-in and token rotation; an
+  /// upsert on the server, so calling it often costs nothing.
+  Future<void> registerDevice(String token, String platform) async {
+    final client = _client;
+    if (client == null || userId == null || token.trim().isEmpty) return;
+    try {
+      await client.rpc('register_customer_device', params: {
+        'tok': token,
+        'plat': platform,
+      });
+    } catch (e) {
+      debugPrint('device registration failed: $e');
+    }
+  }
+
+  /// Sends whatever is still waiting to go up, now, and waits for it —
+  /// bounded, so signing out with no signal does not hang.
+  ///
+  /// Sign-out wipes the phone. It used to cancel the debounced upload first,
+  /// so anything changed in the last second, or anything a failed push had
+  /// left dirty, was simply gone, while the dialog promised it would stay
+  /// with the account.
+  Future<void> flush(AppData data) async {
+    _debounce?.cancel();
+    if (!enabled) return;
+    try {
+      await _pushNow(data).timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('final push before sign-out did not finish: $e');
     }
   }
 
@@ -429,7 +676,17 @@ class SupabaseGateway {
   /// It can only ever be a request: the insert policy refuses a row that
   /// arrives already accepted or already pointing at a job card, so the
   /// customer app cannot book itself into the workshop's floor.
-  Future<void> requestWorkshopBooking({
+  ///
+  /// The car goes up as the customer described it, one column per fact —
+  /// brand, model, variant, fuel, gearbox, year and the odometer. It used to
+  /// go up as the one string "Brand Model", and the counter opened a job
+  /// card with the brand split on the first space, no gearbox and a blank
+  /// KM reading. `vehicle` and `note` are still filled in as before, for a
+  /// console that has not been updated.
+  ///
+  /// True once the workshop has the request — including when it already
+  /// had it, which is what a retry after a lost reply looks like.
+  Future<bool> requestWorkshopBooking({
     required String garageId,
     required String id,
     required String name,
@@ -438,48 +695,95 @@ class SupabaseGateway {
     String regNo = '',
     String vehicle = '',
     String note = '',
+    String brand = '',
+    String model = '',
+    String variant = '',
+    String fuel = '',
+    String transmission = '',
+    int? year,
+    int? odometerKm,
+    String mode = '',
+    String customerNote = '',
   }) async {
     final client = _client;
     final uid = userId;
-    if (client == null || uid == null) return;
+    if (client == null || uid == null) return false;
+
+    final base = {
+      'id': id,
+      'garage_id': garageId,
+      'profile_id': uid,
+      'name': name,
+      'phone': phone,
+      'at': at.toUtc().toIso8601String(),
+      'reg_no': regNo,
+      'vehicle': vehicle,
+      'note': note,
+      'accepted': false,
+    };
+
     try {
       await client.from('garage_bookings').insert({
-        'id': id,
-        'garage_id': garageId,
-        'profile_id': uid,
-        'name': name,
-        'phone': phone,
-        'at': at.toUtc().toIso8601String(),
-        'reg_no': regNo,
-        'vehicle': vehicle,
-        'note': note,
-        'accepted': false,
+        ...base,
+        'brand': brand,
+        'model': model,
+        'variant': variant,
+        'fuel': fuel,
+        'transmission': transmission,
+        'year': year,
+        'odometer_km': odometerKm,
+        'mode': mode,
+        'customer_note': customerNote,
       });
+      return true;
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') return true;
+      // PGRST204 is PostgREST saying a column does not exist: the project
+      // has not run 18_booking_vehicle_details.sql yet. Refusing the
+      // booking over that would be the worst outcome, so it goes up in the
+      // old shape with the details written into the note, where the
+      // counter can at least read them.
+      if (e.code == 'PGRST204') {
+        debugPrint('garage_bookings has no detail columns yet; '
+            'sending the details in the note instead');
+        return _insertBooking(client, {
+          ...base,
+          'note': [
+            note,
+            [
+              if (variant.isNotEmpty) '$model $variant' else model,
+              fuel,
+              transmission,
+              if (year != null) '$year',
+              if (odometerKm != null && odometerKm > 0) '$odometerKm km',
+              if (mode == 'pickup') 'Pick & drop',
+              if (customerNote.isNotEmpty) 'Note: $customerNote',
+            ].where((s) => s.trim().isNotEmpty).join(' • '),
+          ].where((s) => s.trim().isNotEmpty).join(' — '),
+        });
+      }
+      debugPrint('workshop booking request failed (${e.code}): ${e.message}');
+      return false;
     } catch (e) {
-      // The booking itself is already saved; the workshop copy is a courtesy
-      // and must never fail the flow the customer just completed.
       debugPrint('workshop booking request failed: $e');
+      return false;
     }
   }
 
-  /// Redeems the six-digit code the workshop hands over, which is what links
-  /// this account to the garage's record of the customer.
-  ///
-  /// Returns null on success, or a sentence to show the person.
-  Future<String?> redeemWorkshopCode(String code) async {
-    final client = _client;
-    if (client == null) {
-      return 'No connection to the backend. Check the network and try again.';
-    }
+  Future<bool> _insertBooking(
+    SupabaseClient client,
+    Map<String, dynamic> row,
+  ) async {
     try {
-      final res = await client
-          .rpc('redeem_customer_code', params: {'entered': code.trim()});
-      final map = Map<String, dynamic>.from(res as Map);
-      if (map['ok'] == true) return null;
-      return (map['message'] ?? 'That code did not work.') as String;
+      await client.from('garage_bookings').insert(row);
+      return true;
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') return true;
+      debugPrint('workshop booking request failed (${e.code}): ${e.message}');
+      return false;
     } catch (e) {
-      debugPrint('redeem failed: $e');
-      return 'That code did not work. Ask the workshop for a new one.';
+      debugPrint('workshop booking request failed: $e');
+      return false;
     }
   }
 

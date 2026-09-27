@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../state/draft_state.dart';
 import '../../state/providers.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_tokens.dart';
@@ -17,12 +16,16 @@ class _Tab {
   final IconData activeIcon;
 }
 
+/// Four tabs, because there are only four things a customer does here: see
+/// where their car is, look at what they have booked, keep their vehicles,
+/// and change their own details.
 const _tabs = <_Tab>[
   _Tab('Home', Icons.home_outlined, Icons.home_rounded),
-  _Tab('Book', Icons.grid_view_outlined, Icons.grid_view_rounded),
-  _Tab('My garage', Icons.garage_outlined, Icons.garage_rounded),
-  _Tab('Support', Icons.support_agent_outlined, Icons.support_agent_rounded),
-  _Tab('Account', Icons.person_outline_rounded, Icons.person_rounded),
+  _Tab('Bookings', Icons.calendar_month_outlined,
+      Icons.calendar_month_rounded),
+  _Tab('Vehicles', Icons.directions_car_outlined,
+      Icons.directions_car_rounded),
+  _Tab('Profile', Icons.person_outline_rounded, Icons.person_rounded),
 ];
 
 class AppShell extends ConsumerWidget {
@@ -38,9 +41,7 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
-    final cartCount = ref.watch(draftProvider.select((d) => d.count));
-    final actions =
-        ref.watch(notificationsProvider.select((n) => n.where((e) => !e.read).length));
+    final upcoming = ref.watch(upcomingBookingsProvider).length;
 
     return Scaffold(
       backgroundColor: p.canvas,
@@ -48,11 +49,8 @@ class AppShell extends ConsumerWidget {
       bottomNavigationBar: _NavBar(
         index: shell.currentIndex,
         onTap: (i) => _go(context, i),
-        badges: {1: cartCount, 3: actions},
+        badges: {1: upcoming},
       ),
-      floatingActionButton: shell.currentIndex == 0 && cartCount > 0
-          ? _CartFab(count: cartCount)
-          : null,
     );
   }
 }
@@ -142,7 +140,7 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.c;
-    final color = selected ? p.ink : p.inkFaint;
+    final color = selected ? p.accent : p.inkFaint;
     return Pressable(
       onTap: onTap,
       scale: 0.9,
@@ -192,41 +190,6 @@ class _NavItem extends StatelessWidget {
             child: Text(tab.label),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Quick jump back into an unfinished cart from Home.
-class _CartFab extends StatelessWidget {
-  const _CartFab({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.c;
-    return Pressable(
-      onTap: () => context.push('/cart'),
-      scale: 0.94,
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.md),
-        decoration: BoxDecoration(
-          gradient: p.accentGradient,
-          borderRadius: R.all(R.pill),
-          boxShadow: Shadows.accent(p),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.shopping_bag_rounded, size: 18, color: p.onAccent),
-            const SizedBox(width: Gap.sm),
-            Text('$count in cart', style: AppType.labelM.c(p.onAccent)),
-            const SizedBox(width: 4),
-            Icon(Icons.arrow_forward_rounded, size: 16, color: p.onAccent),
-          ],
-        ),
       ),
     );
   }

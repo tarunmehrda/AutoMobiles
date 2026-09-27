@@ -2,30 +2,64 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/i18n/strings.dart';
 import '../../data/models/enums.dart';
+import '../../features/analytics/analytics_page.dart';
+import '../../features/analytics/revenue_analytics_page.dart';
+import '../../features/analytics/vehicle_analytics_page.dart';
+import '../../features/attendance/attendance_page.dart';
+import '../../features/attendance/attendance_register_page.dart';
+import '../../features/attendance/attendance_site_page.dart';
 import '../../features/auth/login_page.dart';
+import '../../features/auth/reset_password_page.dart';
 import '../../features/auth/setup_page.dart';
 import '../../features/bookings/bookings_page.dart';
+import '../../features/notifications/notifications_page.dart';
+import '../../features/contacts/contacts_page.dart';
 import '../../features/customers/customer_detail_page.dart';
 import '../../features/customers/customers_page.dart';
 import '../../features/dashboard/dashboard_page.dart';
 import '../../features/feedback/feedback_page.dart';
-import '../../features/inventory/inventory_page.dart';
+import '../../features/inventory/counter_sale_page.dart';
+import '../../features/inventory/inventory_dashboard_page.dart';
+import '../../features/inventory/master_list_page.dart';
+import '../../features/inventory/purchase_orders_page.dart';
+import '../../features/inventory/suppliers_page.dart';
 import '../../features/jobcard/create_jobcard_page.dart';
 import '../../features/jobcard/jobcard_detail_page.dart';
 import '../../features/jobcard/jobcard_list_page.dart';
 import '../../features/jobcard/panels/accessories_page.dart';
 import '../../features/jobcard/panels/dents_page.dart';
 import '../../features/jobcard/panels/items_page.dart';
+import '../../features/jobcard/panels/mechanics_page.dart';
 import '../../features/jobcard/panels/photos_page.dart';
 import '../../features/jobcard/panels/voices_page.dart';
 import '../../features/jobcard/panels/work_note_page.dart';
+import '../../features/money/cashbook_page.dart';
+import '../../features/money/expenses_page.dart';
 import '../../features/money/pending_page.dart';
 import '../../features/onboarding/onboarding_page.dart';
-import '../../features/reports/reports_page.dart';
+import '../../features/platform/platform_page.dart';
+import '../../features/online/online_garage_page.dart';
+import '../../features/reminders/service_due_page.dart';
+import '../../features/reports/counter_sales_report_page.dart';
+import '../../features/reports/general_report_page.dart';
+import '../../features/reports/mechanic_report_page.dart';
+import '../../features/reports/report_summary_page.dart';
+import '../../features/reports/sale_report_page.dart';
+import '../../features/reports/sms_report_page.dart';
+import '../../features/reports/stock_jobs_report_page.dart';
+import '../../features/search/search_page.dart';
+import '../../features/settings/commission_page.dart';
+import '../../features/settings/greetings_page.dart';
+import '../../features/settings/language_page.dart';
+import '../../features/settings/credits_page.dart';
+import '../../features/settings/privacy_page.dart';
+import '../../features/settings/settings_options_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/settings/staff_page.dart';
 import '../../features/settings/workshop_page.dart';
+import '../../features/splash/restoring_page.dart';
 import '../../features/splash/splash_page.dart';
 import '../../features/support/support_page.dart';
 import '../../state/admin_state.dart';
@@ -40,12 +74,26 @@ final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 class _RouterRefresh extends ChangeNotifier {
   _RouterRefresh(this.ref) {
     ref.listen(adminProvider, (prev, next) {
-      final changed = prev?.signedIn != next.signedIn ||
+      final changed =
+          prev?.signedIn != next.signedIn ||
           prev?.onboarded != next.onboarded ||
           (prev?.garage == null) != (next.garage == null);
       if (changed) notifyListeners();
     });
     ref.listen(signedInProvider, (prev, next) {
+      if (prev != next) notifyListeners();
+    });
+    // The gate also waits on the workshop arriving, so it has to re-run when
+    // that lands.
+    ref.listen(restoringProvider, (prev, next) {
+      if (prev != next) notifyListeners();
+    });
+    // A restore that failed and a password reset link both change where the
+    // gate sends somebody, so both have to wake it.
+    ref.listen(restoreFailedProvider, (prev, next) {
+      if (prev != next) notifyListeners();
+    });
+    ref.listen(passwordRecoveryProvider, (prev, next) {
       if (prev != next) notifyListeners();
     });
   }
@@ -67,6 +115,14 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       if (loc == '/splash') return null;
 
+      // A reset link comes in with a session of its own, so this has to be
+      // checked before anything that would let it pass for a normal one.
+      // Nothing else in the console is reachable until the new password is
+      // saved, or the old one silently stays in force.
+      if (ref.read(passwordRecoveryProvider)) {
+        return loc == '/reset-password' ? null : '/reset-password';
+      }
+
       if (!data.onboarded) {
         return loc == '/onboarding' ? null : '/onboarding';
       }
@@ -74,48 +130,77 @@ final routerProvider = Provider<GoRouter>((ref) {
         const authRoutes = {'/login'};
         return authRoutes.contains(loc) ? null : '/login';
       }
+      // Signed in, but we do not yet know whether this account already has a
+      // workshop. Deciding now is what used to flash the registration form at
+      // an owner who was simply signing back in.
+      if (ref.read(restoringProvider)) {
+        return loc == '/restoring' ? null : '/restoring';
+      }
       if (data.garage == null) {
+        // A workshop we could not reach is not a workshop that does not
+        // exist. Signing out clears it from the device, so after a sign-in
+        // the backend is the only thing that knows this account already has
+        // one — and handing somebody the registration form because the
+        // network blinked is how the same shop gets registered twice.
+        //
+        // But only where a workshop was actually registered here. On a first
+        // run there is nothing to wait for, and holding somebody at a retry
+        // screen for a shop they have never opened is a wall with no door.
+        if (ref.read(restoreFailedProvider) && localStore.everRegistered) {
+          return loc == '/restoring' ? null : '/restoring';
+        }
         return loc == '/setup' ? null : '/setup';
       }
-      const gateRoutes = {'/login', '/onboarding', '/setup'};
+      const gateRoutes = {'/login', '/onboarding', '/setup', '/restoring'};
       if (gateRoutes.contains(loc)) return '/home';
       return null;
     },
     routes: [
-      GoRoute(path: '/splash', builder: (_, _) => const SplashPage()),
+      GoRoute(path: '/splash', builder: (_, _) => SplashPage()),
       GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingPage()),
       GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
       GoRoute(path: '/setup', builder: (_, _) => const SetupPage()),
+      GoRoute(
+        path: '/reset-password',
+        builder: (_, _) => const ResetPasswordPage(),
+      ),
+      GoRoute(path: '/restoring', builder: (_, _) => const RestoringPage()),
 
+      // The bar carries five slots but only three are pages: Create is a
+      // push and Support is a sheet.
       StatefulShellRoute.indexedStack(
         builder: (_, _, shell) => AppShell(shell: shell),
         branches: [
-          StatefulShellBranch(routes: [
-            GoRoute(path: '/home', builder: (_, _) => const DashboardPage()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/jobs',
-              builder: (_, state) => JobCardListPage(
-                initial: JobStatusX.parse(
-                    state.uri.queryParameters['status'] ?? 'open'),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/home', builder: (_, _) => const DashboardPage()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/search', builder: (_, _) => const SearchPage()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/settings',
+                builder: (_, _) => const SettingsPage(),
               ),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-                path: '/inventory', builder: (_, _) => const InventoryPage()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(path: '/reports', builder: (_, _) => const ReportsPage()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
-          ]),
+            ],
+          ),
         ],
       ),
 
       // --- job card ---------------------------------------------------
+      GoRoute(
+        path: '/jobs',
+        builder: (_, state) => JobCardListPage(
+          initial: JobStatusX.parse(
+            state.uri.queryParameters['status'] ?? 'open',
+          ),
+        ),
+      ),
       GoRoute(
         path: '/job/new',
         builder: (_, state) => CreateJobCardPage(
@@ -127,8 +212,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/job/:id',
         builder: (_, state) => JobCardDetailPage(
           id: state.pathParameters['id']!,
-          initialDoc:
-              DocKindX.parse(state.uri.queryParameters['doc'] ?? 'estimate'),
+          initialDoc: DocKindX.parse(
+            state.uri.queryParameters['doc'] ?? 'estimate',
+          ),
         ),
         routes: [
           GoRoute(
@@ -136,13 +222,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, state) => ItemsPage(
               id: state.pathParameters['id']!,
               initial: LineKindX.parse(
-                  state.uri.queryParameters['kind'] ?? 'job'),
+                state.uri.queryParameters['kind'] ?? 'job',
+              ),
             ),
           ),
           GoRoute(
             path: 'voices',
-            builder: (_, state) =>
-                VoicesPage(id: state.pathParameters['id']!),
+            builder: (_, state) => VoicesPage(id: state.pathParameters['id']!),
           ),
           GoRoute(
             path: 'accessories',
@@ -162,11 +248,104 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: 'photos',
             builder: (_, state) => PhotosPage(id: state.pathParameters['id']!),
           ),
+          GoRoute(
+            path: 'mechanics',
+            builder: (_, state) =>
+                MechanicsPage(id: state.pathParameters['id']!),
+          ),
         ],
       ),
 
+      // --- the console grid -------------------------------------------
+      GoRoute(
+        path: '/inventory',
+        builder: (_, _) => const InventoryDashboardPage(),
+      ),
+      GoRoute(
+        path: '/inventory/master',
+        builder: (_, state) => MasterListPage(
+          initial: LineKindX.parse(
+            state.uri.queryParameters['kind'] ?? 'spare',
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/inventory/suppliers',
+        builder: (_, _) => const SuppliersPage(),
+      ),
+      GoRoute(
+        path: '/inventory/counter-sales',
+        builder: (_, _) => const CounterSaleListPage(),
+      ),
+      GoRoute(
+        path: '/inventory/counter-sale/new',
+        builder: (_, _) => const CounterSalePage(),
+      ),
+      GoRoute(
+        path: '/inventory/purchase-orders',
+        builder: (_, _) => const PurchaseOrdersPage(),
+      ),
+      GoRoute(
+        path: '/inventory/purchase-order/new',
+        builder: (_, _) => const CreatePurchaseOrderPage(),
+      ),
+      // The platform back office. Reachable by URL for anybody, and
+      // deliberately so: every list it shows comes back empty and every
+      // write it attempts is refused unless the account holds the
+      // `platform` role. The guard is the database, not this table.
+      GoRoute(path: '/platform', builder: (_, _) => const PlatformPage()),
+      GoRoute(path: '/analytics', builder: (_, _) => const AnalyticsPage()),
+      GoRoute(
+        path: '/analytics/revenue',
+        builder: (_, _) => const RevenueAnalyticsPage(),
+      ),
+      GoRoute(
+        path: '/analytics/vehicle',
+        builder: (_, _) => const VehicleAnalyticsPage(),
+      ),
+      GoRoute(
+        path: '/online-garage',
+        builder: (_, _) => const OnlineGaragePage(),
+      ),
+      GoRoute(path: '/expenses', builder: (_, _) => const ExpensesPage()),
+      GoRoute(path: '/cashbook', builder: (_, _) => const CashBookPage()),
+      GoRoute(path: '/service-due', builder: (_, _) => const ServiceDuePage()),
+
+      // --- reports ----------------------------------------------------
+      GoRoute(path: '/reports', builder: (_, _) => const ReportSummaryPage()),
+      GoRoute(path: '/reports/sms', builder: (_, _) => const SmsReportPage()),
+      GoRoute(
+        path: '/reports/stock',
+        builder: (_, _) => const StockJobsReportPage(),
+      ),
+      GoRoute(path: '/reports/sale', builder: (_, _) => const SaleReportPage()),
+      GoRoute(
+        path: '/reports/counter-sales',
+        builder: (_, _) => const CounterSalesReportPage(),
+      ),
+      GoRoute(
+        path: '/reports/general',
+        builder: (_, _) => const GeneralReportPage(),
+      ),
+      GoRoute(
+        path: '/reports/customer',
+        builder: (_, _) => SaleReportPage(title: 'Customer Report'.tr),
+      ),
+      GoRoute(
+        path: '/reports/mechanic',
+        builder: (_, _) => const MechanicReportPage(),
+      ),
+
       // --- front desk -------------------------------------------------
-      GoRoute(path: '/bookings', builder: (_, _) => const BookingsPage()),
+      GoRoute(
+        path: '/bookings',
+        builder: (_, state) =>
+            BookingsPage(focusId: state.uri.queryParameters['open']),
+      ),
+      GoRoute(
+        path: '/notifications',
+        builder: (_, _) => const NotificationsPage(),
+      ),
       GoRoute(path: '/pending', builder: (_, _) => const PendingPage()),
       GoRoute(path: '/feedback', builder: (_, _) => const FeedbackPage()),
       GoRoute(path: '/customers', builder: (_, _) => const CustomersPage()),
@@ -175,6 +354,43 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) =>
             CustomerDetailPage(id: state.pathParameters['id']!),
       ),
+      GoRoute(
+        path: '/settings/options',
+        builder: (_, _) => const SettingsOptionsPage(),
+      ),
+      GoRoute(
+        path: '/settings/language',
+        builder: (_, _) => const LanguagePage(),
+      ),
+      GoRoute(
+        path: '/settings/greetings',
+        builder: (_, _) => const GreetingsPage(),
+      ),
+      GoRoute(
+        path: '/settings/privacy',
+        builder: (_, _) => const PrivacyPage(),
+      ),
+      GoRoute(
+        path: '/settings/credits',
+        builder: (_, _) => const CreditsPage(),
+      ),
+      GoRoute(
+        path: '/settings/commission',
+        builder: (_, _) => const CommissionPage(),
+      ),
+
+      // --- the team ---------------------------------------------------
+      GoRoute(path: '/attendance', builder: (_, _) => const AttendancePage()),
+      GoRoute(
+        path: '/attendance/register',
+        builder: (_, _) => const AttendanceRegisterPage(),
+      ),
+      GoRoute(
+        path: '/attendance/site',
+        builder: (_, _) => const AttendanceSitePage(),
+      ),
+      GoRoute(path: '/contacts', builder: (_, _) => const ContactsPage()),
+
       GoRoute(path: '/support', builder: (_, _) => const SupportPage()),
       GoRoute(path: '/workshop', builder: (_, _) => const WorkshopPage()),
       GoRoute(path: '/staff', builder: (_, _) => const StaffPage()),
@@ -183,7 +399,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(Gap.page),
-          child: Text('No screen at ${state.uri}'),
+          child: Text('No screen at {0}'.trf([state.uri])),
         ),
       ),
     ),

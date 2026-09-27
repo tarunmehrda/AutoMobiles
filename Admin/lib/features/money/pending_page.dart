@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/anim/entrance.dart';
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
@@ -10,6 +11,7 @@ import '../../core/widgets/g_appbar.dart';
 import '../../core/widgets/g_badge.dart';
 import '../../core/widgets/g_button.dart';
 import '../../core/widgets/g_field.dart';
+import '../../core/widgets/g_art.dart';
 import '../../core/widgets/g_state.dart';
 import '../../data/models/entities.dart';
 import '../../state/providers.dart';
@@ -40,12 +42,19 @@ class _PendingPageState extends ConsumerState<PendingPage> {
 
     return Scaffold(
       backgroundColor: p.canvas,
-      appBar: const GHeader(title: 'Follow up'),
+      appBar: GHeader(
+        title: 'Follow Up'.tr,
+        subtitle: 'Money still owed, and who owes it'.tr,
+      ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-                Gap.page, Gap.sm, Gap.page, Gap.md),
+              Gap.page,
+              Gap.sm,
+              Gap.page,
+              Gap.md,
+            ),
             child: GSegmented<_Tab>(
               options: _Tab.values,
               selected: _tab,
@@ -57,11 +66,12 @@ class _PendingPageState extends ConsumerState<PendingPage> {
           ),
           if (_tab == _Tab.balance && pending.isNotEmpty)
             Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
+              padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: Gap.lg, vertical: Gap.md),
+                  horizontal: Gap.lg,
+                  vertical: Gap.md,
+                ),
                 decoration: BoxDecoration(
                   gradient: p.inverseGradient,
                   borderRadius: R.all(R.lg),
@@ -71,22 +81,27 @@ class _PendingPageState extends ConsumerState<PendingPage> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('OUTSTANDING',
-                            style: AppType.over
-                                .s(9.5)
-                                .c(p.onInverse.withValues(alpha: 0.55))),
+                        Text(
+                          'OUTSTANDING',
+                          style: AppType.over
+                              .s(9.5)
+                              .c(p.onInverse.withValues(alpha: 0.55)),
+                        ),
                         const SizedBox(height: 2),
-                        Text(Fmt.money(total),
-                            style: AppType.moneyL.c(p.volt)),
+                        Text(Fmt.money(total), style: AppType.moneyL.c(p.volt)),
                       ],
                     ),
                     const Spacer(),
                     Text(
-                      'Across\n${pending.length} job card'
-                      '${pending.length == 1 ? '' : 's'}',
+                      Tr.plural(
+                        pending.length,
+                        'Across\n{0} job card',
+                        'Across\n{0} job cards',
+                      ),
                       textAlign: TextAlign.right,
-                      style: AppType.bodyS
-                          .c(p.onInverse.withValues(alpha: 0.7)),
+                      style: AppType.bodyS.c(
+                        p.onInverse.withValues(alpha: 0.7),
+                      ),
                     ),
                   ],
                 ),
@@ -111,10 +126,11 @@ class _BalanceList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (cards.isEmpty) {
-      return const GEmptyState(
+      return GEmptyState(
         icon: Icons.verified_rounded,
-        title: 'Everything is collected',
-        message: 'No job card is carrying a balance right now.',
+        title: 'Everything is collected'.tr,
+        art: Art.done,
+        message: 'No job card is carrying a balance right now.'.tr,
       );
     }
     return ListView.builder(
@@ -133,12 +149,11 @@ class _BalanceList extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: GButton(
-                        label: 'Collect ${Fmt.money(card.balance)}',
+                        label: 'Collect {0}'.trf([Fmt.money(card.balance)]),
                         kind: GButtonKind.ghost,
                         size: GButtonSize.sm,
                         icon: Icons.payments_rounded,
-                        onPressed: () =>
-                            showCollectSheet(context, ref, card),
+                        onPressed: () => showCollectSheet(context, ref, card),
                       ),
                     ),
                     const SizedBox(width: Gap.sm),
@@ -162,11 +177,13 @@ class _DueList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
+    final whatsapp = ref.watch(adminDataProvider).whatsappEnabled;
     if (cards.isEmpty) {
-      return const GEmptyState(
+      return GEmptyState(
         icon: Icons.event_available_rounded,
-        title: 'Nobody is due today',
-        message: 'Service reminders appear here on the day they fall due.',
+        title: 'Nobody is due today'.tr,
+        art: Art.done,
+        message: 'Service reminders appear here on the day they fall due.'.tr,
       );
     }
     return ListView.builder(
@@ -196,18 +213,21 @@ class _DueList extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(customer?.name ?? 'Unknown',
-                              style: AppType.h2.c(p.ink)),
                           Text(
-                            '${vehicle?.title ?? ''} • '
-                            '${Fmt.plate(vehicle?.regNo ?? '')}',
+                            customer?.name ?? 'Unknown'.tr,
+                            style: AppType.h2.c(p.ink),
+                          ),
+                          Text(
+                            "${vehicle?.title ?? ''} • ${Fmt.plate(vehicle?.regNo ?? '')}",
                             style: AppType.bodyS.c(p.inkMuted),
                           ),
                         ],
                       ),
                     ),
                     GPill(
-                      label: 'Due ${Fmt.friendlyDay(card.nextServiceAt!)}',
+                      label: 'Due {0}'.trf([
+                        Fmt.friendlyDay(card.nextServiceAt!),
+                      ]),
                       tone: GTone.warning,
                       compact: true,
                     ),
@@ -218,7 +238,7 @@ class _DueList extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: GButton(
-                        label: 'Call',
+                        label: 'Call'.tr,
                         kind: GButtonKind.ghost,
                         size: GButtonSize.sm,
                         icon: Icons.call_rounded,
@@ -228,21 +248,35 @@ class _DueList extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: Gap.sm),
+                    // WhatsApp only while it is switched on in Settings;
+                    // otherwise the same words go by SMS from this phone.
                     Expanded(
                       child: GButton(
-                        label: 'WhatsApp',
+                        label: whatsapp ? 'WhatsApp'.tr : 'SMS'.tr,
                         kind: GButtonKind.ghost,
                         size: GButtonSize.sm,
-                        icon: Icons.chat_rounded,
+                        icon: whatsapp
+                            ? Icons.chat_rounded
+                            : Icons.sms_rounded,
                         onPressed: customer == null
                             ? null
-                            : () => launchWhatsApp(
-                                  context,
-                                  customer.phone,
-                                  text: 'Hello ${customer.name}, your '
-                                      '${vehicle?.title ?? 'vehicle'} is due '
-                                      'for service. Shall we book a slot?',
-                                ),
+                            : () {
+                                final text =
+                                    "Hello ${customer.name}, your ${vehicle?.title ?? 'vehicle'} is due for service. Shall we book a slot?";
+                                if (whatsapp) {
+                                  launchWhatsApp(
+                                    context,
+                                    customer.phone,
+                                    text: text,
+                                  );
+                                } else {
+                                  launchSms(
+                                    context,
+                                    customer.phone,
+                                    body: text,
+                                  );
+                                }
+                              },
                       ),
                     ),
                   ],
@@ -264,21 +298,26 @@ class _RemindButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final customer = ref.watch(customerProvider(card.customerId));
+    // WhatsApp only while it is switched on in Settings; otherwise the same
+    // reminder goes by SMS from this phone.
+    final whatsapp = ref.watch(adminDataProvider).whatsappEnabled;
     return Expanded(
       child: GButton(
-        label: 'Remind',
+        label: 'Remind'.tr,
         kind: GButtonKind.ghost,
         size: GButtonSize.sm,
-        icon: Icons.chat_rounded,
+        icon: whatsapp ? Icons.chat_rounded : Icons.sms_rounded,
         onPressed: customer == null
             ? null
-            : () => launchWhatsApp(
-                  context,
-                  customer.phone,
-                  text: 'Hello ${customer.name}, a balance of '
-                      '${Fmt.money(card.balance)} is pending against job card '
-                      '${card.number}. Thank you.',
-                ),
+            : () {
+                final text =
+                    'Hello ${customer.name}, a balance of ${Fmt.money(card.balance)} is pending against job card ${card.number}. Thank you.';
+                if (whatsapp) {
+                  launchWhatsApp(context, customer.phone, text: text);
+                } else {
+                  launchSms(context, customer.phone, body: text);
+                }
+              },
       ),
     );
   }

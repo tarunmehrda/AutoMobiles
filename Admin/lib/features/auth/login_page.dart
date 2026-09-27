@@ -1,3 +1,4 @@
+import '../../core/i18n/strings.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -12,8 +13,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
-import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/cinematic_hero.dart';
+import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/g_button.dart';
 import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_field.dart';
@@ -28,11 +29,12 @@ enum _Mode { signIn, signUp }
 /// The way into the console.
 ///
 /// The splash ends on carbon; this screen lifts the same carbon into a
-/// running reel, so the two read as one shot rather than two screens. On top
-/// of the footage there is only what it takes to get in — Google in one tap,
+/// held frame of a service bay, so the two read as one shot rather than two
+/// screens. On top of the picture there is only what it takes to get in —
+/// Google in one tap,
 /// email behind a sheet. Everything that used
 /// to sit on this page as a form now lives in [_EmailSheet], which slides up
-/// over the reel instead of replacing it.
+/// over the picture instead of replacing it.
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -54,11 +56,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _busy = false);
     if (!result.ok) {
       ref.read(awaitingOAuthProvider.notifier).state = false;
-      GFeedback.error(context, result.message ?? 'Google sign-in failed.');
+      GFeedback.error(context, result.message ?? 'Google sign-in failed.'.tr);
     }
   }
 
-  /// The email form, over the reel. It reports success by popping `true`, so
+  /// The email form, over the picture. It reports success by popping `true`, so
   /// the sheet is off the navigator before the router redirect runs.
   Future<void> _email() async {
     if (_busy) return;
@@ -76,7 +78,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (signedIn == true && mounted) context.go('/home');
   }
 
-
   @override
   Widget build(BuildContext context) {
     final waiting = ref.watch(awaitingOAuthProvider);
@@ -92,8 +93,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             const HeroScrim(),
             SafeArea(child: _content(context)),
 
-            // The OAuth round trip leaves and re-enters the app. The reel
-            // keeps running underneath, so coming back feels like returning
+            // The OAuth round trip leaves and re-enters the app. The frame
+            // stays underneath, so coming back feels like returning
             // to the same room rather than booting a second screen.
             if (waiting && !_busy)
               _WaitingForGoogle(
@@ -112,16 +113,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     return Stack(
       children: [
-        const Positioned(
-          top: Gap.xl,
-          left: Gap.page,
-          child: Entrance(child: BrandLogo(width: 168, onDark: true)),
-        ),
         Align(
           alignment: Alignment.bottomLeft,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
-                Gap.page, Gap.xxl, Gap.page, Gap.xxl),
+              Gap.page,
+              Gap.xxl,
+              Gap.page,
+              Gap.xxl,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -131,7 +131,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Entrance(
                   index: 2,
                   child: Text(
-                    'Run the whole\nworkshop.',
+                    'Run the whole\nworkshop.'.tr,
                     style: AppType.d1.s(title).c(Colors.white),
                   ),
                 ),
@@ -139,14 +139,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Entrance(
                   index: 3,
                   child: Text(
-                    'Every job card, every bill and every part — on one '
-                    'screen, at the counter or in your pocket.',
-                    style:
-                        AppType.bodyL.c(Colors.white.withValues(alpha: 0.74)),
+                    'Every job card, every bill and every part — on one screen, at the counter or in your pocket.'
+                        .tr,
+                    style: AppType.bodyL.c(
+                      Colors.white.withValues(alpha: 0.74),
+                    ),
                   ),
                 ),
                 const SizedBox(height: Gap.h1),
-
                 Entrance(
                   index: 4,
                   child: _GoogleCta(
@@ -158,32 +158,33 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Entrance(
                   index: 5,
                   child: _GlassCta(
-                    label: 'Continue with email',
+                    label: 'Continue with email'.tr,
                     icon: Icons.alternate_email_rounded,
                     onTap: _busy ? null : _email,
                   ),
                 ),
-
                 if (!AppConfig.hasSupabase) ...[
                   const SizedBox(height: Gap.lg),
                   Entrance(
                     index: 6,
-                    child: _OfflineNote(onContinue: () {
-                      // Straight into an empty console — the router sends a
-                      // workshop with no profile to /setup, which is where a
-                      // new workshop starts.
-                      ref.read(adminProvider.notifier).markSignedIn();
-                      context.go('/home');
-                    }),
+                    child: _OfflineNote(
+                      onContinue: () {
+                        // Straight into an empty console — the router sends a
+                        // workshop with no profile to /setup, which is where a
+                        // new workshop starts.
+                        ref.read(adminProvider.notifier).markSignedIn();
+                        context.go('/home');
+                      },
+                    ),
                   ),
                 ],
-
                 const SizedBox(height: Gap.lg),
                 Center(
                   child: Text(
-                    '${AppConfig.appName} • v${AppConfig.version}',
-                    style:
-                        AppType.labelS.c(Colors.white.withValues(alpha: 0.34)),
+                    '{0} • v{1}'.trf([AppConfig.appName, AppConfig.version]),
+                    style: AppType.labelS.c(
+                      Colors.white.withValues(alpha: 0.34),
+                    ),
                   ),
                 ),
               ],
@@ -255,7 +256,7 @@ class _FeatureTickerState extends State<_FeatureTicker> {
 }
 
 /// The white pill. Deliberately the only opaque thing on the screen — on
-/// footage this dark, solid white is what the eye lands on first.
+/// a frame this dark, solid white is what the eye lands on first.
 class _GoogleCta extends StatelessWidget {
   const _GoogleCta({required this.onTap, this.loading = false});
 
@@ -289,13 +290,15 @@ class _GoogleCta extends StatelessWidget {
                 height: 20,
                 width: 20,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2.2, color: BrandArt.carbon),
+                  strokeWidth: 2.2,
+                  color: BrandArt.carbon,
+                ),
               )
             else
               const GoogleMark(size: 21),
             const SizedBox(width: Gap.md),
             Text(
-              'Continue with Google',
+              'Continue with Google'.tr,
               style: AppType.labelL.s(15.5).c(BrandArt.carbon),
             ),
           ],
@@ -306,8 +309,8 @@ class _GoogleCta extends StatelessWidget {
 }
 
 /// Secondary route in. Translucent rather than blurred: a [BackdropFilter]
-/// here would re-filter the running reel every frame for the sake of one
-/// button.
+/// here would re-filter the drifting background every frame for the sake of
+/// one button.
 class _GlassCta extends StatelessWidget {
   const _GlassCta({required this.label, required this.icon, this.onTap});
 
@@ -327,7 +330,9 @@ class _GlassCta extends StatelessWidget {
           color: Colors.white.withValues(alpha: 0.13),
           borderRadius: R.all(R.lg),
           border: Border.all(
-              color: Colors.white.withValues(alpha: 0.26), width: 1.2),
+            color: Colors.white.withValues(alpha: 0.26),
+            width: 1.2,
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -361,10 +366,13 @@ class _WaitingForGoogle extends StatelessWidget {
               children: [
                 CircularProgressIndicator(color: p.accent),
                 const SizedBox(height: Gap.xl),
-                Text('Waiting for Google…', style: AppType.h2.c(Colors.white)),
+                Text(
+                  'Waiting for Google…'.tr,
+                  style: AppType.h2.c(Colors.white),
+                ),
                 const SizedBox(height: Gap.sm),
                 Text(
-                  'Finish in the browser and you will land back here.',
+                  'Finish in the browser and you will land back here.'.tr,
                   textAlign: TextAlign.center,
                   style: AppType.bodyS.c(Colors.white.withValues(alpha: 0.66)),
                 ),
@@ -373,10 +381,15 @@ class _WaitingForGoogle extends StatelessWidget {
                   onTap: onCancel,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: Gap.lg, vertical: Gap.md),
-                    child: Text('Cancel',
-                        style: AppType.labelL
-                            .c(Colors.white.withValues(alpha: 0.82))),
+                      horizontal: Gap.lg,
+                      vertical: Gap.md,
+                    ),
+                    child: Text(
+                      'Cancel'.tr,
+                      style: AppType.labelL.c(
+                        Colors.white.withValues(alpha: 0.82),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -410,14 +423,16 @@ class _OfflineNote extends StatelessWidget {
             children: [
               Icon(Icons.cloud_off_rounded, size: 17, color: p.warning),
               const SizedBox(width: Gap.sm),
-              Text('No backend configured',
-                  style: AppType.labelL.c(Colors.white)),
+              Text(
+                'No backend configured'.tr,
+                style: AppType.labelL.c(Colors.white),
+              ),
             ],
           ),
           const SizedBox(height: Gap.xs),
           Text(
-            'Supabase credentials are missing, so sign-in is unavailable. '
-            'You can still run the console on this device.',
+            'Supabase credentials are missing, so sign-in is unavailable. You can still run the console on this device.'
+                .tr,
             style: AppType.bodyS.c(Colors.white.withValues(alpha: 0.70)),
           ),
           const SizedBox(height: Gap.md),
@@ -425,8 +440,10 @@ class _OfflineNote extends StatelessWidget {
             onTap: onContinue,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: Gap.xs),
-              child: Text('Continue offline  →',
-                  style: AppType.labelL.c(p.accent)),
+              child: Text(
+                'Continue offline  →'.tr,
+                style: AppType.labelL.c(p.accent),
+              ),
             ),
           ),
         ],
@@ -435,10 +452,10 @@ class _OfflineNote extends StatelessWidget {
   }
 }
 
-/// Email and password, on dark glass over the still-running reel.
+/// Email and password, on dark glass over the background frame.
 ///
 /// It runs under [AppTheme.dark] whatever the device setting is: these fields
-/// sit on footage, not on the app canvas, so the shared [GField] and
+/// sit on a photograph, not on the app canvas, so the shared [GField] and
 /// [GButton] need the dark palette to look right here.
 class _EmailSheet extends ConsumerStatefulWidget {
   const _EmailSheet();
@@ -496,7 +513,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
     setState(() => _busy = false);
 
     if (!result.ok) {
-      GFeedback.error(context, result.message ?? 'That did not work.');
+      GFeedback.error(context, result.message ?? 'That did not work.'.tr);
       return;
     }
     if (result.needsConfirmation) {
@@ -508,21 +525,29 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
   }
 
   Future<void> _forgot() async {
+    // Supabase rate-limits reset mail, so an impatient double tap would
+    // spend the allowance and answer with a scolding instead of a link.
+    if (_busy) return;
     final email = _email.text.trim();
     if (!email.contains('@')) {
-      GFeedback.info(context, 'Type your email address first.');
+      GFeedback.info(context, 'Type your email address first.'.tr);
       return;
     }
+    setState(() => _busy = true);
     final result = await ref.read(authServiceProvider).sendPasswordReset(email);
     if (!mounted) return;
+    setState(() => _busy = false);
     result.ok
         ? GFeedback.success(context, result.message!)
-        : GFeedback.error(context, result.message ?? 'Could not send it.');
+        : GFeedback.error(context, result.message ?? 'Could not send it.'.tr);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Theme(data: AppTheme.dark(), child: Builder(builder: _sheet));
+    return Theme(
+      data: AppTheme.dark(),
+      child: Builder(builder: _sheet),
+    );
   }
 
   Widget _sheet(BuildContext context) {
@@ -544,7 +569,11 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
               top: false,
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(
-                    Gap.page, Gap.md, Gap.page, Gap.xxl),
+                  Gap.page,
+                  Gap.md,
+                  Gap.page,
+                  Gap.xxl,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -560,32 +589,34 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                     ),
                     const SizedBox(height: Gap.xl),
                     Text(
-                      _signUp ? 'Create your workshop' : 'Workshop sign in',
+                      _signUp
+                          ? 'Create your workshop'.tr
+                          : 'Workshop sign in'.tr,
                       style: AppType.d3.c(p.ink),
                     ),
                     const SizedBox(height: Gap.xs),
                     Text(
                       _signUp
-                          ? 'One account runs the console. You can add '
-                              'mechanics afterwards.'
-                          : 'Use the account this workshop was registered '
-                              'with.',
+                          ? 'One account runs the console. You can add mechanics afterwards.'
+                                .tr
+                          : 'Use the account this workshop was registered with.'
+                                .tr,
                       style: AppType.bodyM.c(p.inkMuted),
                     ),
                     const SizedBox(height: Gap.xl),
-
                     if (_signUp) ...[
                       GField(
-                        label: 'Your name',
-                        hint: 'Who runs the workshop',
+                        label: 'Your name'.tr,
+                        hint: 'Who runs the workshop'.tr,
                         controller: _name,
                         textCapitalization: TextCapitalization.words,
                         onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: Gap.lg),
                       GField(
-                        label: 'Mobile number',
-                        hint: 'Optional — links customers who already know it',
+                        label: 'Mobile number'.tr,
+                        hint:
+                            'Optional — links customers who already know it'.tr,
                         controller: _phone,
                         keyboardType: TextInputType.phone,
                         textCapitalization: TextCapitalization.none,
@@ -596,10 +627,9 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                       ),
                       const SizedBox(height: Gap.lg),
                     ],
-
                     GField(
-                      label: 'Email',
-                      hint: 'you@workshop.com',
+                      label: 'Email'.tr,
+                      hint: 'xyz@gmail.com',
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       textCapitalization: TextCapitalization.none,
@@ -607,8 +637,8 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                     ),
                     const SizedBox(height: Gap.lg),
                     GField(
-                      label: 'Password',
-                      hint: _signUp ? 'At least 6 characters' : null,
+                      label: 'Password'.tr,
+                      hint: _signUp ? 'At least 6 characters'.tr : null,
                       controller: _password,
                       obscure: _obscure,
                       textCapitalization: TextCapitalization.none,
@@ -626,7 +656,6 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                         ),
                       ),
                     ),
-
                     if (!_signUp) ...[
                       const SizedBox(height: Gap.sm),
                       Align(
@@ -634,18 +663,20 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                         child: Pressable(
                           onTap: _forgot,
                           child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: Gap.xs),
-                            child: Text('Forgot password?',
-                                style: AppType.labelM.c(p.accentInk)),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: Gap.xs,
+                            ),
+                            child: Text(
+                              'Forgot password?'.tr,
+                              style: AppType.labelM.c(p.accentInk),
+                            ),
                           ),
                         ),
                       ),
                     ],
-
                     const SizedBox(height: Gap.xxl),
                     GButton.accent(
-                      label: _signUp ? 'Create account' : 'Sign in',
+                      label: _signUp ? 'Create account'.tr : 'Sign in'.tr,
                       loading: _busy,
                       onPressed: _valid ? _submit : null,
                       trailingIcon: Icons.arrow_forward_rounded,
@@ -664,9 +695,10 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                               style: AppType.bodyM.c(p.inkMuted),
                               children: [
                                 TextSpan(
-                                    text: _signUp
-                                        ? 'Already have an account?  '
-                                        : 'New workshop?  '),
+                                  text: _signUp
+                                      ? 'Already have an account?  '
+                                      : 'New workshop?  ',
+                                ),
                                 TextSpan(
                                   text: _signUp ? 'Sign in' : 'Create one',
                                   style: AppType.labelL.c(p.accentInk),

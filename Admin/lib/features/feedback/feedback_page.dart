@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/anim/entrance.dart';
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/g_appbar.dart';
 import '../../core/widgets/g_badge.dart';
+import '../../core/widgets/g_art.dart';
 import '../../core/widgets/g_state.dart';
 import '../../core/widgets/pressable.dart';
 import '../../state/providers.dart';
@@ -34,22 +36,27 @@ class FeedbackPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(
-        title: 'Feedback',
+        title: 'Feedback'.tr,
         subtitle: reviews.isEmpty
-            ? 'Nothing yet'
-            : '${reviews.length} review${reviews.length == 1 ? '' : 's'}',
+            ? 'Nothing yet'.tr
+            : Tr.plural(reviews.length, '{0} review', '{0} reviews'),
       ),
       body: reviews.isEmpty
-          ? const GEmptyState(
+          ? GEmptyState(
               icon: Icons.star_rounded,
-              title: 'No reviews yet',
+              title: 'No reviews yet'.tr,
+              art: Art.customers,
               message:
-                  'Ratings customers leave after a job card closes appear '
-                  'here, against the card they relate to.',
+                  'Ratings customers leave after a job card closes appear here, against the card they relate to.'
+                      .tr,
             )
           : ListView(
               padding: const EdgeInsets.fromLTRB(
-                  Gap.page, Gap.md, Gap.page, Gap.h2),
+                Gap.page,
+                Gap.md,
+                Gap.page,
+                Gap.h2,
+              ),
               children: [
                 // --- headline -----------------------------------------
                 Container(
@@ -66,12 +73,16 @@ class FeedbackPage extends ConsumerWidget {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(average.toStringAsFixed(1),
-                              style: AppType.d1.c(p.ink)),
+                          Text(
+                            average.toStringAsFixed(1),
+                            style: AppType.d1.c(p.ink),
+                          ),
                           _Stars(value: average),
                           const SizedBox(height: 3),
-                          Text('${reviews.length} total',
-                              style: AppType.labelS.c(p.inkFaint)),
+                          Text(
+                            '{0} total'.trf([reviews.length]),
+                            style: AppType.labelS.c(p.inkFaint),
+                          ),
                         ],
                       ),
                       const SizedBox(width: Gap.xl),
@@ -85,9 +96,10 @@ class FeedbackPage extends ConsumerWidget {
                                   children: [
                                     SizedBox(
                                       width: 12,
-                                      child: Text('$star',
-                                          style: AppType.labelS
-                                              .c(p.inkFaint)),
+                                      child: Text(
+                                        '$star',
+                                        style: AppType.labelS.c(p.inkFaint),
+                                      ),
                                     ),
                                     const SizedBox(width: Gap.sm),
                                     Expanded(
@@ -96,26 +108,27 @@ class FeedbackPage extends ConsumerWidget {
                                         child: LinearProgressIndicator(
                                           value: reviews.isEmpty
                                               ? 0
-                                              : counts[star]! /
-                                                  reviews.length,
+                                              : counts[star]! / reviews.length,
                                           minHeight: 6,
                                           backgroundColor: p.surfaceSunken,
                                           valueColor: AlwaysStoppedAnimation(
-                                              star >= 4
-                                                  ? p.success
-                                                  : star == 3
-                                                      ? p.warning
-                                                      : p.danger),
+                                            star >= 4
+                                                ? p.success
+                                                : star == 3
+                                                ? p.warning
+                                                : p.danger,
+                                          ),
                                         ),
                                       ),
                                     ),
                                     const SizedBox(width: Gap.sm),
                                     SizedBox(
                                       width: 18,
-                                      child: Text('${counts[star]}',
-                                          textAlign: TextAlign.right,
-                                          style: AppType.labelS
-                                              .c(p.inkMuted)),
+                                      child: Text(
+                                        '${counts[star]}',
+                                        textAlign: TextAlign.right,
+                                        style: AppType.labelS.c(p.inkMuted),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -136,8 +149,9 @@ class FeedbackPage extends ConsumerWidget {
                       builder: (context) {
                         final r = sorted[i];
                         final card = data.jobById(r.jobCardId);
-                        final customer =
-                            data.customerById(card?.customerId ?? '');
+                        final customer = data.customerById(
+                          card?.customerId ?? '',
+                        );
                         return Pressable(
                           onTap: card == null
                               ? null
@@ -158,7 +172,8 @@ class FeedbackPage extends ConsumerWidget {
                                   children: [
                                     GAvatar(
                                       initials: Fmt.initials(
-                                          customer?.name ?? '?'),
+                                        customer?.name ?? '?',
+                                      ),
                                       size: 34,
                                       tone: GTone.neutral,
                                     ),
@@ -168,14 +183,13 @@ class FeedbackPage extends ConsumerWidget {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Text(customer?.name ?? 'Customer',
-                                              style:
-                                                  AppType.labelL.c(p.ink)),
                                           Text(
-                                            '${card?.number ?? ''} • '
-                                            '${Fmt.relative(r.at)}',
-                                            style: AppType.bodyS
-                                                .c(p.inkMuted),
+                                            customer?.name ?? 'Customer'.tr,
+                                            style: AppType.labelL.c(p.ink),
+                                          ),
+                                          Text(
+                                            "${card?.number ?? ''} • ${Fmt.relative(r.at)}",
+                                            style: AppType.bodyS.c(p.inkMuted),
                                           ),
                                         ],
                                       ),
@@ -185,8 +199,10 @@ class FeedbackPage extends ConsumerWidget {
                                 ),
                                 if (r.comment.isNotEmpty) ...[
                                   const SizedBox(height: Gap.md),
-                                  Text(r.comment,
-                                      style: AppType.bodyM.c(p.inkSoft)),
+                                  Text(
+                                    r.comment,
+                                    style: AppType.bodyM.c(p.inkSoft),
+                                  ),
                                 ],
                               ],
                             ),
@@ -217,8 +233,8 @@ class _Stars extends StatelessWidget {
             value >= i
                 ? Icons.star_rounded
                 : value >= i - 0.5
-                    ? Icons.star_half_rounded
-                    : Icons.star_outline_rounded,
+                ? Icons.star_half_rounded
+                : Icons.star_outline_rounded,
             size: 15,
             color: value >= i - 0.5 ? p.warning : p.inkFaint,
           ),

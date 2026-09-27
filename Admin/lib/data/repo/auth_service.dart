@@ -4,9 +4,11 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import 'push_service.dart';
 
-final authServiceProvider =
-    Provider<AuthService>((ref) => AuthService.instance);
+final authServiceProvider = Provider<AuthService>(
+  (ref) => AuthService.instance,
+);
 
 /// What every sign-in path hands back: whether it worked, and something the
 /// UI can actually show a person if it did not.
@@ -20,7 +22,7 @@ class AuthResult {
 
   /// The account exists but the email has not been confirmed yet.
   const AuthResult.pendingConfirmation(String message)
-      : this._(true, message: message, needsConfirmation: true);
+    : this._(true, message: message, needsConfirmation: true);
 
   final bool ok;
   final String? message;
@@ -97,7 +99,8 @@ class AuthService {
       );
       if (res.session != null) return const AuthResult.ok();
       return const AuthResult.pendingConfirmation(
-          'Check your email and tap the confirmation link, then sign in.');
+        'Check your email and tap the confirmation link, then sign in.',
+      );
     } on AuthException catch (e) {
       return AuthResult.failed(_humanise(e));
     } catch (e) {
@@ -135,7 +138,8 @@ class AuthService {
         redirectTo: kIsWeb ? null : AppConfig.authRedirect,
       );
       return const AuthResult.ok(
-          'Reset link sent. Check your inbox and spam folder.');
+        'Reset link sent. Check your inbox and spam folder.',
+      );
     } on AuthException catch (e) {
       return AuthResult.failed(_humanise(e));
     } catch (e) {
@@ -180,7 +184,9 @@ class AuthService {
       final account = await GoogleSignIn.instance.authenticate();
       final idToken = account.authentication.idToken;
       if (idToken == null) {
-        return const AuthResult.failed('Google did not return a sign-in token.');
+        return const AuthResult.failed(
+          'Google did not return a sign-in token.',
+        );
       }
       await _client!.auth.signInWithIdToken(
         provider: OAuthProvider.google,
@@ -194,16 +200,20 @@ class AuthService {
       // Anything else here is a device or project-configuration problem
       // (Play Services missing, the app's SHA-1 not registered in Google
       // Cloud, ...). Say so in the log, then let the browser have a go.
-      debugPrint('native google sign-in unavailable (${e.code}): '
-          '${e.description}');
+      debugPrint(
+        'native google sign-in unavailable (${e.code}): '
+        '${e.description}',
+      );
       return _googleViaBrowser();
     } on AuthException catch (e) {
       return AuthResult.failed(_humanise(e));
     } catch (e) {
       debugPrint('google sign-in failed: $e');
-      return AuthResult.failed(_isNetwork(e)
-          ? _offline
-          : 'Google sign-in is not available on this device.');
+      return AuthResult.failed(
+        _isNetwork(e)
+            ? _offline
+            : 'Google sign-in is not available on this device.',
+      );
     }
   }
 
@@ -222,8 +232,9 @@ class AuthService {
         // A Custom Tab rather than the system browser: it stays inside this
         // app's own task, so the deep link comes back to the instance that
         // opened it whenever the platform honours that.
-        authScreenLaunchMode:
-            kIsWeb ? LaunchMode.platformDefault : LaunchMode.inAppBrowserView,
+        authScreenLaunchMode: kIsWeb
+            ? LaunchMode.platformDefault
+            : LaunchMode.inAppBrowserView,
         queryParams: const {'prompt': 'select_account'},
       );
       return started
@@ -233,14 +244,26 @@ class AuthService {
       return AuthResult.failed(_humanise(e));
     } catch (e) {
       debugPrint('google sign-in failed: $e');
-      return AuthResult.failed(_isNetwork(e)
-          ? _offline
-          : 'Google sign-in is not available on this device.');
+      return AuthResult.failed(
+        _isNetwork(e)
+            ? _offline
+            : 'Google sign-in is not available on this device.',
+      );
     }
   }
 
   Future<void> signOut() async {
     if (!enabled) return;
+
+    // Before the session goes, not after: `forget_garage_device` is scoped
+    // to `auth.uid()`, so once the session is gone there is no longer a way
+    // to say which handset stopped being this workshop's. A phone left
+    // registered keeps ringing for a garage whoever holds it no longer
+    // works at.
+    await PushService.instance.stop((token) async {
+      await _client?.rpc('forget_garage_device', params: {'tok': token});
+    });
+
     try {
       await _client!.auth.signOut();
     } catch (e) {
@@ -254,7 +277,6 @@ class AuthService {
       } catch (_) {}
     }
   }
-
 
   static const String _offline =
       'No connection to the backend. Check the network and try again.';
@@ -290,6 +312,18 @@ class AuthService {
     }
     if (raw.contains('password should be at least')) {
       return 'Use a password of at least 6 characters.';
+    }
+    // The project's email allowance is a few messages an hour for everyone
+    // together, not per person, so "wait a minute" sent people round in
+    // circles. Google needs no email at all.
+    if (e.code == 'over_email_send_rate_limit' ||
+        raw.contains('email rate limit')) {
+      return 'No more emails can be sent for now — the limit resets within '
+          'an hour. Continue with Google instead: it needs no email.';
+    }
+    if (e.code == 'email_address_not_authorized') {
+      return 'Emails to that address are blocked until the project has its '
+          'own mail server. Continue with Google instead.';
     }
     if (raw.contains('rate limit') || raw.contains('too many')) {
       return 'Too many attempts. Wait a minute and try again.';

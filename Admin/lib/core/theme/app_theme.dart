@@ -66,6 +66,10 @@ class AppTheme {
       scaffoldBackgroundColor: p.canvas,
       canvasColor: p.canvas,
       fontFamily: AppType.body,
+      // Anything Flutter styles for us — pickers, the date field, error
+      // text — has to reach Devanagari too, or the Hindi build shows tofu
+      // in the widgets the app never sets a style on.
+      fontFamilyFallback: const [AppType.deva],
       textTheme: text,
       splashFactory: InkSparkle.splashFactory,
       highlightColor: Colors.transparent,
@@ -88,8 +92,12 @@ class AppTheme {
         centerTitle: false,
         titleTextStyle: AppType.h1.c(p.ink),
         systemOverlayStyle: p.isDark
-            ? SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent)
-            : SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+            ? SystemUiOverlayStyle.light.copyWith(
+                statusBarColor: Colors.transparent,
+              )
+            : SystemUiOverlayStyle.dark.copyWith(
+                statusBarColor: Colors.transparent,
+              ),
       ),
       cardTheme: CardThemeData(
         color: p.surface,
@@ -111,24 +119,43 @@ class AppTheme {
         filled: true,
         fillColor: p.surfaceSunken,
         contentPadding: const EdgeInsets.symmetric(
-            horizontal: Gap.lg, vertical: Gap.lg),
+          horizontal: Gap.lg,
+          vertical: Gap.lg,
+        ),
         hintStyle: AppType.bodyM.c(p.inkFaint),
-        labelStyle: AppType.labelM.c(p.inkMuted),
-        floatingLabelStyle: AppType.labelM.c(p.accent),
+        // The label lives inside the box: at rest it reads as the
+        // placeholder, so it matches hintStyle; floated, it shrinks onto the
+        // border and picks up the accent only while the field has focus.
+        labelStyle: AppType.bodyM.c(p.inkFaint),
+        floatingLabelStyle: WidgetStateTextStyle.resolveWith((s) {
+          if (s.contains(WidgetState.error)) {
+            return AppType.labelS.c(p.danger);
+          }
+          return AppType.labelS.c(
+            s.contains(WidgetState.focused) ? p.accent : p.inkMuted,
+          );
+        }),
         errorStyle: AppType.labelS.c(p.danger),
         border: OutlineInputBorder(
-            borderRadius: R.rMd, borderSide: BorderSide.none),
+          borderRadius: R.rMd,
+          borderSide: BorderSide.none,
+        ),
         enabledBorder: OutlineInputBorder(
-            borderRadius: R.rMd, borderSide: BorderSide(color: p.line)),
+          borderRadius: R.rMd,
+          borderSide: BorderSide(color: p.line),
+        ),
         focusedBorder: OutlineInputBorder(
-            borderRadius: R.rMd,
-            borderSide: BorderSide(color: p.accent, width: 1.6)),
+          borderRadius: R.rMd,
+          borderSide: BorderSide(color: p.accent, width: 1.6),
+        ),
         errorBorder: OutlineInputBorder(
-            borderRadius: R.rMd,
-            borderSide: BorderSide(color: p.danger, width: 1.2)),
+          borderRadius: R.rMd,
+          borderSide: BorderSide(color: p.danger, width: 1.2),
+        ),
         focusedErrorBorder: OutlineInputBorder(
-            borderRadius: R.rMd,
-            borderSide: BorderSide(color: p.danger, width: 1.6)),
+          borderRadius: R.rMd,
+          borderSide: BorderSide(color: p.danger, width: 1.6),
+        ),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: p.surfaceSunken,
@@ -137,7 +164,9 @@ class AppTheme {
         labelStyle: AppType.labelM.c(p.inkSoft),
         secondaryLabelStyle: AppType.labelM.c(p.surface),
         padding: const EdgeInsets.symmetric(
-            horizontal: Gap.md, vertical: Gap.sm),
+          horizontal: Gap.md,
+          vertical: Gap.sm,
+        ),
         shape: const StadiumBorder(),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -147,10 +176,7 @@ class AppTheme {
           borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
         ),
         showDragHandle: false,
-      ).copyWith(
-        backgroundColor: p.surface,
-        modalBackgroundColor: p.surface,
-      ),
+      ).copyWith(backgroundColor: p.surface, modalBackgroundColor: p.surface),
       dialogTheme: DialogThemeData(
         backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
@@ -193,23 +219,29 @@ class AppTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-            (s) => s.contains(WidgetState.selected) ? Colors.white : p.surface),
+          (s) => s.contains(WidgetState.selected) ? Colors.white : p.surface,
+        ),
         trackColor: WidgetStateProperty.resolveWith(
-            (s) => s.contains(WidgetState.selected) ? p.accent : p.surfaceSunken),
-        trackOutlineColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? Colors.transparent : p.line),
+          (s) => s.contains(WidgetState.selected) ? p.accent : p.surfaceSunken,
+        ),
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? Colors.transparent : p.line,
+        ),
         trackOutlineWidth: const WidgetStatePropertyAll(1),
       ),
       checkboxTheme: CheckboxThemeData(
-        fillColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? p.accent : Colors.transparent),
+        fillColor: WidgetStateProperty.resolveWith(
+          (s) =>
+              s.contains(WidgetState.selected) ? p.accent : Colors.transparent,
+        ),
         checkColor: WidgetStatePropertyAll(p.onAccent),
         side: BorderSide(color: p.inkFaint, width: 1.6),
         shape: RoundedRectangleBorder(borderRadius: R.all(7)),
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-            (s) => s.contains(WidgetState.selected) ? p.accent : p.inkFaint),
+          (s) => s.contains(WidgetState.selected) ? p.accent : p.inkFaint,
+        ),
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(color: p.inverse, borderRadius: R.rSm),
@@ -236,21 +268,25 @@ class FadeThroughPageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final curved =
-        CurvedAnimation(parent: animation, curve: Motion.emphasized);
-    final out =
-        CurvedAnimation(parent: secondaryAnimation, curve: Motion.emphasized);
+    final curved = CurvedAnimation(parent: animation, curve: Motion.emphasized);
+    final out = CurvedAnimation(
+      parent: secondaryAnimation,
+      curve: Motion.emphasized,
+    );
     return FadeTransition(
       opacity: curved,
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.035), end: Offset.zero)
-            .animate(curved),
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.035),
+          end: Offset.zero,
+        ).animate(curved),
         child: FadeTransition(
           opacity: Tween<double>(begin: 1, end: 0).animate(out),
           child: SlideTransition(
-            position:
-                Tween<Offset>(begin: Offset.zero, end: const Offset(0, -0.02))
-                    .animate(out),
+            position: Tween<Offset>(
+              begin: Offset.zero,
+              end: const Offset(0, -0.02),
+            ).animate(out),
             child: child,
           ),
         ),

@@ -82,7 +82,9 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                   'Booking confirmations, inspection updates, approvals and '
                   'payment receipts all land here.',
               actionLabel: 'Book a service',
-              onAction: () => context.go('/book'),
+              // Pushed so booking's back arrow returns here; `go` left it
+              // as the only route, with nothing underneath to pop to.
+              onAction: () => context.push('/book'),
             )
           : Column(
               children: [
@@ -173,11 +175,9 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
               ref
                   .read(appControllerProvider.notifier)
                   .markNotificationRead(n.id);
-              if (n.bookingId != null) {
-                context.push('/booking/${n.bookingId}');
-              } else if (n.kind == NotifyKind.offer) {
-                context.push('/offers');
-              }
+              // Everything a notification can be about lives on the
+              // Bookings tab now, so that is where it lands.
+              if (n.bookingId != null) context.go('/bookings');
             },
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,

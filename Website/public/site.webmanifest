@@ -1,0 +1,16 @@
+{
+  "name": "Balaji Automobiles",
+  "short_name": "Balaji Auto",
+  "description": "Book a service, watch the work happen and pay the bill — from your phone.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F4F5F7",
+  "theme_color": "#FF5F2E",
+  "lang": "en-IN",
+  "icons": [
+    { "src": "/assets/img/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/img/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/img/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

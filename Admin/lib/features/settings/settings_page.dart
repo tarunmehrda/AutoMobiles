@@ -1,344 +1,220 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../core/anim/entrance.dart';
 import '../../core/config/app_config.dart';
+import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
-import '../../core/utils/formatters.dart';
-import '../../core/widgets/g_badge.dart';
+import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_surface.dart';
-import '../../data/repo/auth_service.dart';
-import '../../state/admin_state.dart';
+import '../../data/repo/platform_gateway.dart';
 import '../../state/providers.dart';
+import '../shared/sign_out.dart';
 import '../shared/support_sheet.dart';
-import '../../core/widgets/brand_logo.dart';
 
+/// The menu behind the last slot in the bar. It leads with who is signed in,
+/// then the handful of things an owner actually reaches for, with the deep
+/// settings one level down so they do not crowd the list.
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
-    final data = ref.watch(adminDataProvider);
-    final garage = data.garage;
-    final ctrl = ref.read(adminProvider.notifier);
+    final garage = ref.watch(garageProvider);
+    final shareText = ref.watch(onlineShareTextProvider);
 
     return Scaffold(
       backgroundColor: p.canvas,
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding:
-              const EdgeInsets.fromLTRB(Gap.page, Gap.sm, Gap.page, 110),
+          padding: const EdgeInsets.fromLTRB(
+            Gap.page,
+            Gap.md,
+            Gap.page,
+            Gap.h2,
+          ),
           children: [
-            Text('Settings', style: AppType.d2.c(p.ink)),
-            const SizedBox(height: Gap.lg),
-
-            // --- the workshop ------------------------------------------
-            GCard(
-              onTap: () => context.push('/workshop'),
+            // --- who is signed in -------------------------------------
+            Entrance(
               child: Row(
                 children: [
-                  const BrandBadge(size: 44),
-                  const SizedBox(width: Gap.md),
+                  const BrandBadge(size: 56),
+                  const SizedBox(width: Gap.lg),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(garage?.name ?? 'Workshop',
+                        Text(
+                          garage?.name ?? 'Workshop'.tr,
+                          maxLines: 2,
+                          style: AppType.h1.s(21).c(p.ink).w(FontWeight.w800),
+                        ),
+                        Text('Owner'.tr, style: AppType.bodyS.c(p.accentInk)),
+                        if ((garage?.email ?? '').isNotEmpty)
+                          Text(
+                            garage!.email,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppType.h1.c(p.ink)),
-                        Text(garage?.phone ?? '',
-                            style: AppType.bodyS.c(p.inkMuted)),
-                        if (garage?.planExpiry != null) ...[
-                          const SizedBox(height: 5),
-                          GPill(
-                            label: garage!.daysLeft <= 0
-                                ? 'Plan expired'
-                                : '${garage.daysLeft} days left • '
-                                    'expires ${Fmt.date(garage.planExpiry!)}',
-                            tone: garage.daysLeft <= 0
-                                ? GTone.danger
-                                : garage.planExpiringSoon
-                                    ? GTone.warning
-                                    : GTone.success,
-                            compact: true,
+                            style: AppType.bodyS.c(p.inkMuted),
                           ),
-                        ],
+                        Text(
+                          garage?.phone ?? '',
+                          style: AppType.bodyS.c(p.inkMuted),
+                        ),
                       ],
                     ),
                   ),
-                  Icon(Icons.chevron_right_rounded,
-                      color: p.inkFaint, size: 22),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: Gap.xl),
+            Entrance(
+              index: 1,
+              child: GTileGroup(
+                children: [
+                  GTile(
+                    title: 'Home'.tr,
+                    subtitle: 'Back to the shop floor'.tr,
+                    icon: Icons.dashboard_rounded,
+                    iconColor: p.accent,
+                    onTap: () => context.go('/home'),
+                  ),
+                  GTile(
+                    title: 'Options'.tr,
+                    subtitle: 'How the app behaves day to day'.tr,
+                    icon: Icons.tune_rounded,
+                    iconColor: p.info,
+                    onTap: () => context.push('/settings/options'),
+                  ),
+                  // The same message the Online Garage screen shares. It used
+                  // to be written here separately, with "https://" stuck on
+                  // the front of a link that already had it and a promise
+                  // that the link tracked a job card, which it did not.
+                  // With the shopfront off there is nothing to book, so the
+                  // counter is sent to switch it on instead.
+                  GTile(
+                    title: 'Share'.tr,
+                    subtitle: 'Send customers your booking link'.tr,
+                    icon: Icons.ios_share_rounded,
+                    iconColor: p.success,
+                    onTap: () {
+                      if (shareText.isEmpty) {
+                        GFeedback.toast(
+                          context,
+                          'Switch on Online Garage first, so customers can find and book you.'
+                              .tr,
+                          icon: Icons.storefront_rounded,
+                          actionLabel: 'Open'.tr,
+                          onAction: () => context.push('/online-garage'),
+                          duration: const Duration(seconds: 5),
+                        );
+                        return;
+                      }
+                      SharePlus.instance.share(ShareParams(text: shareText));
+                    },
+                  ),
+                  GTile(
+                    title: 'Language'.tr,
+                    subtitle: 'View the app in your language'.tr,
+                    icon: Icons.translate_rounded,
+                    iconColor: p.info,
+                    onTap: () => context.push('/settings/language'),
+                  ),
+                  GTile(
+                    title: 'Greetings & Offers'.tr,
+                    subtitle: 'What goes out on a festival or a birthday'.tr,
+                    icon: Icons.card_giftcard_rounded,
+                    iconColor: p.warning,
+                    onTap: () => context.push('/settings/greetings'),
+                  ),
+                  GTile(
+                    title: 'Commission'.tr,
+                    subtitle: 'What this workshop owes the platform'.tr,
+                    icon: Icons.percent_rounded,
+                    iconColor: p.warning,
+                    onTap: () => context.push('/settings/commission'),
+                  ),
+                  // Only for the account that runs the register. Everybody
+                  // else never learns the section exists — and if they
+                  // reached it by URL, every list would come back empty
+                  // because the database, not this line, is the guard.
+                  if (ref.watch(isPlatformAdminProvider).valueOrNull ?? false)
+                    GTile(
+                      title: 'Platform',
+                      subtitle: 'Partners, requests, listings',
+                      icon: Icons.hub_rounded,
+                      iconColor: p.accent,
+                      onTap: () => context.push('/platform'),
+                    ),
+                  GTile(
+                    title: 'Help & Support'.tr,
+                    subtitle: 'Reach a human, or read the answers'.tr,
+                    icon: Icons.headset_mic_rounded,
+                    iconColor: p.accent,
+                    onTap: () => showSupportSheet(context),
+                  ),
+                  GTile(
+                    title: 'Privacy Policy'.tr,
+                    subtitle: 'What this app keeps, and where'.tr,
+                    icon: Icons.privacy_tip_rounded,
+                    iconColor: p.inkMuted,
+                    onTap: () => context.push('/settings/privacy'),
+                  ),
+                  // Reachable rather than buried: most of the vehicle
+                  // photography is CC BY or CC BY-SA, and naming the
+                  // photographer is a condition of those licences.
+                  GTile(
+                    title: 'Image credits'.tr,
+                    subtitle: 'Who took the photographs in this app'.tr,
+                    icon: Icons.photo_library_rounded,
+                    iconColor: p.inkMuted,
+                    onTap: () => context.push('/settings/credits'),
+                  ),
+                  GTile(
+                    title: 'Sign Out'.tr,
+                    subtitle: 'Clears everything on this device'.tr,
+                    icon: Icons.logout_rounded,
+                    iconColor: p.danger,
+                    onTap: () => confirmSignOut(context, ref),
+                  ),
                 ],
               ),
             ),
 
             const SizedBox(height: Gap.xxl),
-            GTileGroup(
-              title: 'Workshop',
-              children: [
-                GTile(
-                  title: 'Business details',
-                  subtitle: 'Name, address, GSTIN, UPI and bill terms',
-                  icon: Icons.storefront_rounded,
-                  onTap: () => context.push('/workshop'),
-                ),
-                GTile(
-                  title: 'Mechanics',
-                  subtitle: '${data.staff.length} on the team',
-                  icon: Icons.engineering_rounded,
-                  onTap: () => context.push('/staff'),
-                ),
-                GTile(
-                  title: 'Inventory masters',
-                  subtitle: '${data.masters.length} labour, spare and lube '
-                      'rows',
-                  icon: Icons.inventory_2_rounded,
-                  onTap: () => context.go('/inventory'),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: Gap.xxl),
-            GTileGroup(
-              title: 'Customer messaging',
-              children: [
-                GTile(
-                  title: 'Send SMS updates',
-                  subtitle: 'Job card opened, work complete, invoice closed',
-                  icon: Icons.sms_rounded,
-                  showChevron: false,
-                  trailing: Switch(
-                    value: data.smsEnabled,
-                    onChanged: ctrl.setSmsEnabled,
-                  ),
-                ),
-                GTile(
-                  title: 'Offer WhatsApp',
-                  subtitle: 'Show WhatsApp alongside call on customer rows',
-                  icon: Icons.chat_rounded,
-                  showChevron: false,
-                  trailing: Switch(
-                    value: data.whatsappEnabled,
-                    onChanged: ctrl.setWhatsappEnabled,
-                  ),
-                ),
-                GTile(
-                  title: 'Reminder spacing',
-                  subtitle:
-                      '${data.reminderDaysBefore} days either side of the '
-                      'service date',
-                  icon: Icons.event_repeat_rounded,
-                  onTap: () => _reminderSheet(context, ref),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: Gap.xxl),
-            GTileGroup(
-              title: 'Billing',
-              children: [
-                GTile(
-                  title: 'Default GST rate',
-                  subtitle: data.defaultTaxRate == 0
-                      ? 'No GST on new job cards'
-                      : '${(data.defaultTaxRate * 100).toStringAsFixed(0)}% '
-                          'applied to new job cards',
-                  icon: Icons.percent_rounded,
-                  onTap: () => _taxSheet(context, ref),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: Gap.xxl),
-            GTileGroup(
-              title: 'Appearance',
-              children: [
-                GTile(
-                  title: 'Theme',
-                  subtitle: switch (data.themeMode) {
-                    ThemeMode.light => 'Always light',
-                    ThemeMode.dark => 'Always dark',
-                    ThemeMode.system => 'Follow the device',
-                  },
-                  icon: Icons.dark_mode_rounded,
-                  onTap: () => _themeSheet(context, ref),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: Gap.xxl),
-            GTileGroup(
-              title: 'Data',
-              children: [
-                GTile(
-                  title: 'Clear job cards',
-                  subtitle: 'Keeps the workshop, staff and inventory',
-                  icon: Icons.cleaning_services_rounded,
-                  onTap: () async {
-                    final ok = await GFeedback.confirm(
-                      context,
-                      title: 'Clear every job card?',
-                      message:
-                          'All job cards, bookings and reviews go. Customers, '
-                          'vehicles and inventory stay.',
-                      confirmLabel: 'Clear',
-                      destructive: true,
-                      icon: Icons.cleaning_services_rounded,
-                    );
-                    if (!ok || !context.mounted) return;
-                    ctrl.clearJobCards();
-                    GFeedback.success(context, 'Job cards cleared');
-                  },
-                ),
-                GTile(
-                  title: 'Sign out',
-                  subtitle: 'Wipes this device and returns to sign in',
-                  icon: Icons.logout_rounded,
-                  iconColor: p.danger,
-                  iconBg: p.dangerSoft,
-                  onTap: () async {
-                    final ok = await GFeedback.confirm(
-                      context,
-                      title: 'Sign out?',
-                      message:
-                          'Everything on this device is cleared. With no '
-                          'backend configured, there is no copy elsewhere.',
-                      confirmLabel: 'Sign out',
-                      destructive: true,
-                      icon: Icons.logout_rounded,
-                    );
-                    if (!ok || !context.mounted) return;
-                    await ref.read(authServiceProvider).signOut();
-                    await localStore.clear();
-                    ctrl.signOut();
-                  },
-                ),
-              ],
-            ),
-
-            const SizedBox(height: Gap.xxl),
-            GTileGroup(
-              title: 'Help',
-              children: [
-                GTile(
-                  title: 'Contact support',
-                  subtitle: 'WhatsApp or call the Balaji Automobiles team',
-                  icon: Icons.headset_mic_rounded,
-                  onTap: () => showSupportSheet(context),
-                ),
-                GTile(
-                  title: 'About',
-                  subtitle:
-                      '${AppConfig.appName} ${AppConfig.version} • '
-                      '${AppConfig.hasSupabase ? 'Cloud sync on' : 'On-device only'}',
-                  icon: Icons.info_outline_rounded,
-                  onTap: () => context.push('/support'),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: Gap.xxl),
             Center(
               child: Text(
-                '${AppConfig.appName} • v${AppConfig.version}',
+                'App Version: {0}'.trf([AppConfig.version]),
                 style: AppType.labelS.c(p.inkFaint),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _themeSheet(BuildContext context, WidgetRef ref) {
-    final current = ref.read(adminProvider).themeMode;
-    GFeedback.sheet<void>(
-      context,
-      title: 'Theme',
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final mode in ThemeMode.values)
-              GOptionRow(
-                label: switch (mode) {
-                  ThemeMode.system => 'Follow the device',
-                  ThemeMode.light => 'Always light',
-                  ThemeMode.dark => 'Always dark',
-                },
-                icon: switch (mode) {
-                  ThemeMode.system => Icons.brightness_auto_rounded,
-                  ThemeMode.light => Icons.light_mode_rounded,
-                  ThemeMode.dark => Icons.dark_mode_rounded,
-                },
-                selected: current == mode,
-                onTap: () {
-                  ref.read(adminProvider.notifier).setThemeMode(mode);
-                  Navigator.of(context).pop();
-                },
+            const SizedBox(height: Gap.md),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: Gap.md),
+              decoration: BoxDecoration(
+                color: p.successSoft,
+                borderRadius: R.all(R.md),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _taxSheet(BuildContext context, WidgetRef ref) {
-    final current = ref.read(adminProvider).defaultTaxRate;
-    GFeedback.sheet<void>(
-      context,
-      title: 'Default GST',
-      subtitle: 'Applied to new job cards. Existing cards keep their rate.',
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final rate in [0.0, 0.05, 0.12, 0.18, 0.28])
-              GOptionRow(
-                label: rate == 0
-                    ? 'No GST'
-                    : '${(rate * 100).toStringAsFixed(0)}%',
-                selected: (current - rate).abs() < 0.001,
-                onTap: () {
-                  ref.read(adminProvider.notifier).setDefaultTaxRate(rate);
-                  Navigator.of(context).pop();
-                },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.verified_user_rounded, size: 17, color: p.success),
+                  const SizedBox(width: Gap.sm),
+                  Text(
+                    '100% Safe and Secure'.tr,
+                    style: AppType.labelL.c(p.success),
+                  ),
+                ],
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _reminderSheet(BuildContext context, WidgetRef ref) {
-    final current = ref.read(adminProvider).reminderDaysBefore;
-    GFeedback.sheet<void>(
-      context,
-      title: 'Reminder spacing',
-      subtitle: 'Three messages go out: before, on, and after the due date.',
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final days in [3, 5, 7, 10])
-              GOptionRow(
-                label: '$days days either side',
-                subtitle: 'Reminders at -$days, 0 and +$days days',
-                selected: current == days,
-                onTap: () {
-                  ref.read(adminProvider.notifier).setReminderDays(days);
-                  Navigator.of(context).pop();
-                },
-              ),
+            ),
           ],
         ),
       ),

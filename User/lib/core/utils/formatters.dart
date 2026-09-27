@@ -100,6 +100,12 @@ class Fmt {
     return '${'•' * (phone.length - 4)}${phone.substring(phone.length - 4)}';
   }
 
+  /// An Indian PIN code: six digits, never starting with 0. It is printed
+  /// beside the workshop's name wherever a customer sees a garage, so a
+  /// registration cannot go through without one. `26_require_garage_pin.sql`
+  /// holds the same rule.
+  static bool isPin(String pin) => RegExp(r'^[1-9]\d{5}$').hasMatch(pin.trim());
+
   static String percentOff(num mrp, num price) {
     if (mrp <= 0 || price >= mrp) return '';
     return '${(((mrp - price) / mrp) * 100).round()}% OFF';

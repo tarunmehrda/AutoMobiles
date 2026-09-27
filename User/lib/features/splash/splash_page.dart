@@ -95,7 +95,9 @@ class _SplashPageState extends ConsumerState<SplashPage>
   Widget build(BuildContext context) {
     final p = context.c;
     final w = MediaQuery.sizeOf(context).width;
-    final logoWidth = math.min(w * 0.78, 380.0);
+    // The whole lockup, sized to sit in the frame rather than fill it:
+    // at 78% of the width it read as an oversized crop on a phone.
+    final logoWidth = math.min(w * 0.60, 290.0);
 
     return Scaffold(
       backgroundColor: BrandArt.carbon,

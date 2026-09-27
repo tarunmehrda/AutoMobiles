@@ -53,7 +53,9 @@ class GPill extends StatelessWidget {
     final t = toneOf(context, tone);
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: compact ? Gap.sm : Gap.md, vertical: compact ? 3 : 5.5),
+        horizontal: compact ? Gap.sm : Gap.md,
+        vertical: compact ? 3 : 5.5,
+      ),
       decoration: BoxDecoration(color: t.bg, borderRadius: R.all(R.pill)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -70,8 +72,9 @@ class GPill extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style:
-                  (compact ? AppType.labelS.s(10.5) : AppType.labelS).c(t.fg),
+              style: (compact ? AppType.labelS.s(10.5) : AppType.labelS).c(
+                t.fg,
+              ),
             ),
           ),
         ],
@@ -150,7 +153,9 @@ class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
                   height: 7 + 12 * t,
                   width: 7 + 12 * t,
                   decoration: BoxDecoration(
-                      color: widget.color, shape: BoxShape.circle),
+                    color: widget.color,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
               child!,
@@ -262,26 +267,33 @@ class GChoiceChips<T> extends StatelessWidget {
               child: Row(
                 children: [
                   if (icon != null) ...[
-                    Icon(icon,
-                        size: 15,
-                        color: isSel
-                            ? (p.isDark ? p.canvas : Colors.white)
-                            : p.inkMuted),
+                    Icon(
+                      icon,
+                      size: 15,
+                      color: isSel
+                          ? (p.isDark ? p.canvas : Colors.white)
+                          : p.inkMuted,
+                    ),
                     const SizedBox(width: 6),
                   ],
                   Text(
                     labelOf(o),
-                    style: AppType.labelM.c(isSel
-                        ? (p.isDark ? p.canvas : Colors.white)
-                        : p.inkSoft),
+                    style: AppType.labelM.c(
+                      isSel ? (p.isDark ? p.canvas : Colors.white) : p.inkSoft,
+                    ),
                   ),
                   if (count != null) ...[
                     const SizedBox(width: 5),
-                    Text(count,
-                        style: AppType.labelS.c(isSel
-                            ? (p.isDark ? p.canvas : Colors.white)
-                                .withValues(alpha: 0.6)
-                            : p.inkFaint)),
+                    Text(
+                      count,
+                      style: AppType.labelS.c(
+                        isSel
+                            ? (p.isDark ? p.canvas : Colors.white).withValues(
+                                alpha: 0.6,
+                              )
+                            : p.inkFaint,
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -319,14 +331,12 @@ class GAvatar extends StatelessWidget {
         color: t.bg,
         shape: BoxShape.circle,
         image: imageUrl != null && imageUrl!.isNotEmpty
-            ? DecorationImage(
-                image: NetworkImage(imageUrl!), fit: BoxFit.cover)
+            ? DecorationImage(image: NetworkImage(imageUrl!), fit: BoxFit.cover)
             : null,
       ),
       child: imageUrl != null && imageUrl!.isNotEmpty
           ? null
-          : Text(initials,
-              style: AppType.h3.s(size * 0.36).c(t.fg)),
+          : Text(initials, style: AppType.h3.s(size * 0.36).c(t.fg)),
     );
   }
 }

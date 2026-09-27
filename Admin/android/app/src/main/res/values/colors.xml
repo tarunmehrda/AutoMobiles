@@ -4,4 +4,6 @@
          plate the launcher icon is cut on. -->
     <color name="brand_carbon">#FF101215</color>
     <color name="ic_launcher_background">#FF101215</color>
+    <!-- The logo's yellow: tints the notification icon and its app name. -->
+    <color name="notification_accent">#FFFBBB01</color>
 </resources>

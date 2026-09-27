@@ -77,7 +77,9 @@ class _SplashPageState extends State<SplashPage>
   Widget build(BuildContext context) {
     final p = context.c;
     final w = MediaQuery.sizeOf(context).width;
-    final logoWidth = math.min(w * 0.78, 380.0);
+    // The whole lockup, sized to sit in the frame rather than fill it:
+    // at 78% of the width it read as an oversized crop on a phone.
+    final logoWidth = math.min(w * 0.60, 290.0);
 
     return Scaffold(
       backgroundColor: BrandArt.carbon,
@@ -86,7 +88,10 @@ class _SplashPageState extends State<SplashPage>
           Positioned.fill(
             child: CustomPaint(
               painter: BlueprintPainter(
-                  color: p.onInverse, spacing: 26, opacity: 0.05),
+                color: p.onInverse,
+                spacing: 26,
+                opacity: 0.05,
+              ),
             ),
           ),
 
@@ -99,10 +104,12 @@ class _SplashPageState extends State<SplashPage>
               width: 340,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [
-                  p.accent.withValues(alpha: 0.26),
-                  p.accent.withValues(alpha: 0),
-                ]),
+                gradient: RadialGradient(
+                  colors: [
+                    p.accent.withValues(alpha: 0.26),
+                    p.accent.withValues(alpha: 0),
+                  ],
+                ),
               ),
             ),
           ),
@@ -178,8 +185,10 @@ class _SplashPageState extends State<SplashPage>
                     ),
                   ),
                   const SizedBox(height: Gap.md),
-                  Text('v${AppConfig.version}',
-                      style: AppType.labelS.c(p.onInverse)),
+                  Text(
+                    'v${AppConfig.version}',
+                    style: AppType.labelS.c(p.onInverse),
+                  ),
                 ],
               ),
             ),
@@ -255,12 +264,12 @@ class _StreakPainter extends CustomPainter {
         Paint()
           ..strokeCap = StrokeCap.round
           ..strokeWidth = 3.4 - i * 0.7
-          ..shader = LinearGradient(colors: [
-            color.withValues(alpha: 0),
-            color.withValues(alpha: a),
-          ]).createShader(
-            Rect.fromLTWH(head - len, y - 2, len, 4),
-          ),
+          ..shader = LinearGradient(
+            colors: [
+              color.withValues(alpha: 0),
+              color.withValues(alpha: a),
+            ],
+          ).createShader(Rect.fromLTWH(head - len, y - 2, len, 4)),
       );
     }
   }

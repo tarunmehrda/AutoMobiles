@@ -56,8 +56,8 @@ class AppData {
   /// and kept live over realtime. Read-only here — the workshop owns them.
   final List<WorkshopCard> workshopCards;
 
-  /// The garage this customer is linked to, as that garage filled it in.
-  /// [Workshop.none] until a link code has been redeemed.
+  /// The garage this customer deals with, as that garage filled it in.
+  /// [Workshop.none] until they have booked with one.
   final Workshop workshop;
 
   /// Whatever the workshop has on the floor right now, newest first.

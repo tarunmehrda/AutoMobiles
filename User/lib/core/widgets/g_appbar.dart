@@ -17,6 +17,7 @@ class GHeader extends StatelessWidget implements PreferredSizeWidget {
     this.onBack,
     this.background,
     this.bottom,
+    this.bottomHeight = 58,
     this.centered = false,
   });
 
@@ -27,10 +28,17 @@ class GHeader extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onBack;
   final Color? background;
   final Widget? bottom;
+
+  /// How much room [bottom] gets. The app bar has to report its height before
+  /// anything is laid out, so a slot taller than this is the caller's to
+  /// declare — the default fits one row of chips or a segmented control.
+  final double bottomHeight;
+
   final bool centered;
 
   @override
-  Size get preferredSize => Size.fromHeight(bottom == null ? 62 : 62 + 54);
+  Size get preferredSize =>
+      Size.fromHeight(bottom == null ? 62 : 62 + bottomHeight);
 
   @override
   Widget build(BuildContext context) {
@@ -80,7 +88,8 @@ class GHeader extends StatelessWidget implements PreferredSizeWidget {
                 ],
               ),
             ),
-            if (bottom != null) bottom!,
+            if (bottom != null)
+              SizedBox(height: bottomHeight, child: bottom),
           ],
         ),
       ),

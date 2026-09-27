@@ -4,11 +4,17 @@
 /// The moment real Supabase credentials are filled in here (or passed with
 /// `--dart-define`), [SupabaseGateway] switches on and the same data is
 /// mirrored to Postgres. Nothing else in the app needs to change.
+library;
+
+import '../../config/brand.dart';
+
 class AppConfig {
   const AppConfig._();
 
-  static const String appName = 'Balaji Automobiles';
-  static const String tagline = 'Your car. Our care.';
+  // Identity lives in one place so a rebrand is one file. See
+  // `lib/config/brand.dart`.
+  static const String appName = Brand.appName;
+  static const String tagline = Brand.tagline;
   static const String version = '1.0.0';
 
   /// Paste the project URL here, or pass --dart-define=SUPABASE_URL=...
@@ -44,16 +50,11 @@ class AppConfig {
   /// Where Google (and any other OAuth provider) sends the browser back
   /// to. Registered in AndroidManifest.xml and Info.plist, and must be
   /// listed under Authentication -> URL Configuration in Supabase.
-  static const String authRedirect = 'com.garagepro.garagepro://login-callback';
+  static const String authRedirect = '${Brand.androidPackage}://login-callback';
 
   static bool get hasSupabase =>
       supabaseUrl.trim().isNotEmpty && supabaseAnonKey.trim().isNotEmpty;
 
-  /// Seconds an OTP stays valid.
-  static const int otpTtlSeconds = 300;
-
-  /// Seconds before "Resend OTP" is offered again.
-  static const int otpResendSeconds = 30;
 
   /// Garage service radius for pickup & drop.
   static const int pickupRadiusKm = 12;

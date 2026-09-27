@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/strings.dart';
 import '../../../core/widgets/g_appbar.dart';
+import '../../../core/widgets/g_art.dart';
 import '../../../core/widgets/g_state.dart';
 import '../../../data/seed/seed.dart';
 import '../../../state/admin_state.dart';
@@ -19,20 +21,25 @@ class VoicesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final card = ref.watch(jobCardProvider(id));
     if (card == null) {
-      return const Scaffold(
-        appBar: GHeader(title: 'Customer voice'),
+      return Scaffold(
+        appBar: GHeader(
+          title: 'Customer Voice'.tr,
+          subtitle: 'What the owner said was wrong'.tr,
+        ),
         body: GEmptyState(
           icon: Icons.record_voice_over_outlined,
-          title: 'Job card not found',
-          message: 'Nothing to attach this to.',
+          title: 'Job card not found'.tr,
+          art: Art.searching,
+          message: 'Nothing to attach this to.'.tr,
         ),
       );
     }
 
     return ChecklistPage(
-      title: 'Customer voice',
-      subtitle: 'Tick what the customer reported. These print on the '
-          'mechanic copy in the order you add them.',
+      title: 'Customer voice'.tr,
+      subtitle:
+          'Tick what the customer reported. These print on the mechanic copy in the order you add them.'
+              .tr,
       emptyHint: 'Nothing recorded yet — tap a complaint to add it.',
       icon: Icons.record_voice_over_rounded,
       presets: Seed.voices,

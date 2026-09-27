@@ -30,8 +30,14 @@ class AppUser {
   final String? referralCode;
   final DateTime? createdAt;
 
+  /// [phone] is editable like the rest. It used to be fixed at sign-in,
+  /// which left every Google account with an empty number forever — and the
+  /// workshop matches a booking to its customer by that number. Nothing on
+  /// the server grants access on the strength of a typed phone, so letting
+  /// the customer set it is safe.
   AppUser copyWith({
     String? name,
+    String? phone,
     String? email,
     DateTime? dob,
     String? gender,
@@ -40,7 +46,7 @@ class AppUser {
       AppUser(
         id: id,
         name: name ?? this.name,
-        phone: phone,
+        phone: phone ?? this.phone,
         email: email ?? this.email,
         dob: dob ?? this.dob,
         gender: gender ?? this.gender,
@@ -732,6 +738,7 @@ class Booking {
     required this.slot,
     required this.status,
     required this.createdAt,
+    this.garageId = '',
     this.addressId,
     this.stage = JobStage.confirmed,
     this.timeline = const [],
@@ -759,6 +766,14 @@ class Booking {
   final DateTime slot;
   final BookingStatus status;
   final DateTime createdAt;
+
+  /// The workshop this was raised against, as the directory knows it.
+  ///
+  /// Empty on a booking made before a customer picked a workshop at all,
+  /// which is every booking from the days when the counter had to hand out
+  /// a code first. Those still read back; they simply have nowhere to be
+  /// sent, which is what they had then too.
+  final String garageId;
   final String? addressId;
   final JobStage stage;
   final List<TimelineEvent> timeline;
@@ -790,6 +805,14 @@ class Booking {
 
   bool get isLive =>
       status == BookingStatus.active || status == BookingStatus.upcoming;
+
+  /// Still "upcoming", a day past its slot, and no job card came of it: the
+  /// visit did not happen, or the workshop never took it up. It used to sit
+  /// at the top of Upcoming, and in the tab badge, for ever.
+  bool get lapsed =>
+      status == BookingStatus.upcoming &&
+      jobCard == null &&
+      slot.isBefore(DateTime.now().subtract(const Duration(days: 1)));
 
   bool get needsApproval => stage == JobStage.awaitingApproval;
 
@@ -825,6 +848,7 @@ class Booking {
         slot: slot ?? this.slot,
         status: status ?? this.status,
         createdAt: createdAt,
+        garageId: garageId,
         addressId: addressId ?? this.addressId,
         stage: stage ?? this.stage,
         timeline: timeline ?? this.timeline,
@@ -848,6 +872,7 @@ class Booking {
         'id': id,
         'code': code,
         'vehicle_id': vehicleId,
+        'garage_id': garageId,
         'lines': lines.map((e) => e.toJson()).toList(),
         'mode': mode.name,
         'slot': slot.toIso8601String(),
@@ -883,6 +908,7 @@ class Booking {
         slot: _date(j['slot']) ?? DateTime.now(),
         status: BookingStatusX.parse(j['status'] as String?),
         createdAt: _date(j['created_at']) ?? DateTime.now(),
+        garageId: (j['garage_id'] ?? '') as String,
         addressId: j['address_id'] as String?,
         stage: JobStageX.parse(j['stage'] as String?),
         timeline: ((j['timeline'] ?? const []) as List)
@@ -1441,30 +1467,6 @@ class SupportTicket {
 }
 
 @immutable
-class Garage {
-  const Garage({
-    required this.name,
-    required this.tagline,
-    required this.address,
-    required this.phone,
-    required this.whatsapp,
-    required this.gstin,
-    required this.rating,
-    required this.reviewCount,
-    required this.openHours,
-  });
-
-  final String name;
-  final String tagline;
-  final String address;
-  final String phone;
-  final String whatsapp;
-  final String gstin;
-  final double rating;
-  final int reviewCount;
-  final String openHours;
-}
-
 @immutable
 class FaqItem {
   const FaqItem(this.question, this.answer, this.group);

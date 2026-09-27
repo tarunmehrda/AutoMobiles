@@ -14,3 +14,13 @@ pics by user/
 .vscode/
 *.iml
 .DS_Store
+
+# Local-only: built APKs, scratch, QA captures, raw footage, tool state
+release-apks/
+_tmp/
+qa-evidence/
+Video/
+**/.netlify/
+**/.kilo/
+Admin/scrollcraft/
+hs_err_pid*.log

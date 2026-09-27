@@ -14,6 +14,7 @@ import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_type.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/cinematic_hero.dart';
+import '../../core/widgets/g_badge.dart';
 import '../../core/widgets/g_button.dart';
 import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_field.dart';
@@ -27,11 +28,12 @@ enum _Mode { signIn, signUp }
 /// The way in.
 ///
 /// The splash ends on carbon; this screen lifts the same carbon into a
-/// running reel, so the two read as one shot rather than two screens. On top
-/// of the footage there is only what it takes to get in — Google in one tap,
+/// held frame of a service bay, so the two read as one shot rather than two
+/// screens. On top of the picture there is only what it takes to get in —
+/// Google in one tap,
 /// email behind a sheet. Everything
 /// that used to sit on this page as a form now lives in [_EmailSheet], which
-/// slides up over the reel instead of replacing it.
+/// slides up over the picture instead of replacing it.
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -57,7 +59,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
-  /// The email form, over the reel. It reports success by popping `true`, so
+  /// The email form, over the picture. It reports success by popping `true`, so
   /// the sheet is off the navigator before the router redirect runs.
   Future<void> _email() async {
     if (_busy) return;
@@ -91,8 +93,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             const HeroScrim(),
             SafeArea(child: _content(context)),
 
-            // The OAuth round trip leaves and re-enters the app. The reel
-            // keeps running underneath, so coming back feels like returning
+            // The OAuth round trip leaves and re-enters the app. The frame
+            // stays underneath, so coming back feels like returning
             // to the same room rather than booting a second screen.
             if (waiting && !_busy)
               _WaitingForGoogle(
@@ -111,11 +113,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     return Stack(
       children: [
-        const Positioned(
-          top: Gap.xl,
-          left: Gap.page,
-          child: Entrance(child: BrandLogo(width: 168, onDark: true)),
-        ),
         Align(
           alignment: Alignment.bottomLeft,
           child: Padding(
@@ -245,7 +242,7 @@ class _FeatureTickerState extends State<_FeatureTicker> {
 }
 
 /// The white pill. Deliberately the only opaque thing on the screen — on
-/// footage this dark, solid white is what the eye lands on first.
+/// a frame this dark, solid white is what the eye lands on first.
 class _GoogleCta extends StatelessWidget {
   const _GoogleCta({required this.onTap, this.loading = false});
 
@@ -296,8 +293,8 @@ class _GoogleCta extends StatelessWidget {
 }
 
 /// Secondary route in. Translucent rather than blurred: a [BackdropFilter]
-/// here would re-filter the running reel every frame for the sake of one
-/// button.
+/// here would re-filter the drifting background every frame for the sake of
+/// one button.
 class _GlassCta extends StatelessWidget {
   const _GlassCta({required this.label, required this.icon, this.onTap});
 
@@ -378,10 +375,10 @@ class _WaitingForGoogle extends StatelessWidget {
   }
 }
 
-/// Email and password, on dark glass over the still-running reel.
+/// Email and password, on dark glass over the background frame.
 ///
 /// It runs under [AppTheme.dark] whatever the device setting is: these fields
-/// sit on footage, not on the app canvas, so the shared [GField] and
+/// sit on a photograph, not on the app canvas, so the shared [GField] and
 /// [GButton] need the dark palette to look right here.
 class _EmailSheet extends ConsumerStatefulWidget {
   const _EmailSheet();
@@ -399,6 +396,21 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
   _Mode _mode = _Mode.signIn;
   bool _busy = false;
   bool _obscure = true;
+
+  /// What the last attempt came back with, printed above the button.
+  ///
+  /// These used to be toasts. A toast lands on the page's Scaffold, which is
+  /// underneath this sheet, so "wrong password", "confirm your email first"
+  /// and "reset link sent" all happened where nobody could see them and the
+  /// button simply appeared to do nothing. Cleared as soon as a field is
+  /// edited, so an old complaint never sits under a corrected password.
+  ({String text, GTone tone})? _notice;
+
+  void _say(String text, GTone tone) =>
+      setState(() => _notice = (text: text, tone: tone));
+
+  /// Every field's onChanged: rebuild for [_valid] and drop the notice.
+  void _edited() => setState(() => _notice = null);
 
   @override
   void dispose() {
@@ -420,7 +432,10 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
 
   Future<void> _submit() async {
     if (!_valid || _busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
     final auth = ref.read(authServiceProvider);
 
     final result = _signUp
@@ -439,12 +454,15 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
     setState(() => _busy = false);
 
     if (!result.ok) {
-      GFeedback.error(context, result.message ?? 'That did not work.');
+      HapticFeedback.heavyImpact();
+      _say(result.message ?? 'That did not work.', GTone.danger);
       return;
     }
     if (result.needsConfirmation) {
-      GFeedback.info(context, result.message!);
-      setState(() => _mode = _Mode.signIn);
+      setState(() {
+        _mode = _Mode.signIn;
+        _notice = (text: result.message!, tone: GTone.info);
+      });
       return;
     }
     Navigator.of(context).pop(true);
@@ -453,14 +471,14 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
   Future<void> _forgot() async {
     final email = _email.text.trim();
     if (!email.contains('@')) {
-      GFeedback.info(context, 'Type your email address first.');
+      _say('Type your email address first.', GTone.info);
       return;
     }
     final result = await ref.read(authServiceProvider).sendPasswordReset(email);
     if (!mounted) return;
     result.ok
-        ? GFeedback.success(context, result.message!)
-        : GFeedback.error(context, result.message ?? 'Could not send it.');
+        ? _say(result.message!, GTone.success)
+        : _say(result.message ?? 'Could not send it.', GTone.danger);
   }
 
   @override
@@ -521,7 +539,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                         label: 'Your name',
                         controller: _name,
                         textCapitalization: TextCapitalization.words,
-                        onChanged: (_) => setState(() {}),
+                        onChanged: (_) => _edited(),
                       ),
                       const SizedBox(height: Gap.lg),
                       GField(
@@ -534,6 +552,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                           FilteringTextInputFormatter.digitsOnly,
                           LengthLimitingTextInputFormatter(10),
                         ],
+                        onChanged: (_) => _edited(),
                       ),
                       const SizedBox(height: Gap.lg),
                     ],
@@ -544,7 +563,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       textCapitalization: TextCapitalization.none,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) => _edited(),
                     ),
                     const SizedBox(height: Gap.lg),
                     GField(
@@ -553,7 +572,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                       controller: _password,
                       obscure: _obscure,
                       textCapitalization: TextCapitalization.none,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) => _edited(),
                       onSubmitted: (_) => _submit(),
                       suffix: Pressable(
                         onTap: () => setState(() => _obscure = !_obscure),
@@ -584,6 +603,11 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                       ),
                     ],
 
+                    if (_notice case final n?) ...[
+                      const SizedBox(height: Gap.lg),
+                      _Notice(text: n.text, tone: n.tone),
+                    ],
+
                     const SizedBox(height: Gap.xxl),
                     GButton.accent(
                       label: _signUp ? 'Create account' : 'Sign in',
@@ -597,6 +621,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
                         onTap: () => setState(() {
                           _mode = _signUp ? _Mode.signIn : _Mode.signUp;
                           _password.clear();
+                          _notice = null;
                         }),
                         child: Padding(
                           padding: const EdgeInsets.all(Gap.sm),
@@ -641,6 +666,45 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// One line of news from the last attempt, inside the email sheet where the
+/// customer is looking — a failed sign-in in red, "check your inbox" in the
+/// quieter tones.
+class _Notice extends StatelessWidget {
+  const _Notice({required this.text, required this.tone});
+
+  final String text;
+  final GTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = toneOf(context, tone);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.sm),
+      decoration: BoxDecoration(color: t.bg, borderRadius: R.all(R.sm)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(
+              switch (tone) {
+                GTone.danger => Icons.error_rounded,
+                GTone.success => Icons.check_circle_rounded,
+                _ => Icons.info_rounded,
+              },
+              size: 16,
+              color: t.fg,
+            ),
+          ),
+          const SizedBox(width: Gap.sm),
+          Expanded(child: Text(text, style: AppType.bodyS.c(t.fg))),
+        ],
       ),
     );
   }

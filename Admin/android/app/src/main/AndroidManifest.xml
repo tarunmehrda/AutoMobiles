@@ -4,6 +4,49 @@
          finish the sign-in. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Asked for one at a time on the first-run permission screen, each
+         behind its own "Allow Access" tap. None of these is required for the
+         app to open; a refusal only closes off the feature it names. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <!-- FINE is not optional here the way it is for the address lookup:
+         attendance is judged against a circle a few metres across, and
+         COARSE is accurate to a city block. A phone that grants only the
+         coarse permission is refused by AttendanceGate rather than let
+         through on a fix that cannot answer the question. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- No SEND_SMS. It is a hard-restricted permission from Android 10:
+         unless the app is the handset's default SMS handler, the system
+         refuses it and greys the switch out in Settings, so onboarding could
+         ask, be told "never", send the owner to a page that would not let
+         them say yes, and trap them there. Nothing here sent a message
+         itself in any case - the customer's SMS goes out through their own
+         messaging app over an sms: intent, which needs no permission. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Photos split at Android 13: READ_MEDIA_IMAGES from 33 up, the old
+         storage read below it. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <!-- "Download PDF" puts the bill in the phone's own Downloads folder.
+         From Android 10 that goes through MediaStore and needs no permission;
+         below it the public directory is a plain write and does. Without this
+         the save fell back to the app's private folder, and the path in the
+         snackbar pointed somewhere no file manager would open. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
+    <!-- Android 13 made notifications opt-in. Without this the tray stays
+         silent no matter what the server sends, and the counter finds out
+         about a booking by opening the app - which is the whole thing push
+         exists to avoid. Requested at runtime by PushService, not on first
+         run, so the prompt lands when there is a workshop to be rung about. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Lets the console show Android's one-tap "always run in background?"
+         dialog, so a booking rings a shut console on phones that stop idle
+         apps (Xiaomi, Vivo, Oppo). Asked once, after notifications are
+         allowed. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
     <application
         android:label="Balaji Admin"
         android:name="${applicationName}"
@@ -41,6 +84,28 @@
                 <data android:scheme="com.garagepro.garageproadmin" android:host="login-callback"/>
             </intent-filter>
         </activity>
+        <!-- The channel a pushed alert lands in when the message does not
+             name one. Without this Firebase files them under a fallback
+             channel of default importance, which on most phones means no
+             sound and no heads-up banner - a booking request that waits
+             quietly in the shade is not a notification.
+
+             This is only the fallback: the sender puts a channel_id on every
+             message so each kind of alert gets its own chime, and the four
+             channels themselves are created in MainActivity. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="garage_general_v1"/>
+        <!-- The small icon Android draws in the status bar and on each alert.
+             It uses the alpha channel only, in white, so the round launcher
+             icon rendered as a plain disc; this is the logo's own shape. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify"/>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent"/>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -56,6 +121,44 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+
+        <!-- Android 11 hides every other app unless it is declared here, and
+             a hidden app is one url_launcher reports as not installed. The
+             share sheet's Email button was answering "No email app on this
+             device" on every phone, mail client or not, because the mailto:
+             lookup came back empty. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="mailto"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="mailto"/>
+        </intent>
+        <!-- Same for the tel: and https: links elsewhere in the console. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <!-- The messaging app that carries a job card or bill to the
+             customer. This is what replaces SEND_SMS: the counter's own app
+             opens with the message already typed, so the shop stays the
+             sender and the phone never has to hand this app the right to
+             text on its own. Undeclared, Android 11 hides it and the button
+             answers "no messaging app on this device" on a phone that
+             plainly has one. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="sms"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="sms"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

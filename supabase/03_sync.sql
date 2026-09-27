@@ -21,6 +21,12 @@
 -- 0. Housekeeping
 -- ---------------------------------------------------------------------
 
+-- The customer's copy of a bill carries the rate it was raised at, because
+-- a bill that came from a job card is taxed the way that workshop taxes --
+-- including not at all, where it is not registered.
+alter table public.invoices
+  add column if not exists tax_rate numeric(6,4) not null default 0.18;
+
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $fn$
 begin
@@ -339,6 +345,7 @@ set search_path = public as $fn$
 declare
   gid  uuid := nullif(payload ->> 'garage_id', '')::uuid;
   cid  text := payload ->> 'id';
+  num  text := coalesce(payload ->> 'number', '');
   card public.job_cards;
   keep text[];
 begin
@@ -353,6 +360,28 @@ begin
     raise exception 'that job card belongs to another garage';
   end if;
 
+  -- The console mints a card's number the moment it opens, with or without
+  -- a network, so two counters working the same morning can arrive with the
+  -- same one. `job_cards_unique_number` used to refuse the second write, and
+  -- the client could do nothing with the refusal but log it — the card sat
+  -- on that device and existed nowhere else.
+  --
+  -- The database settles it instead: a number already spoken for by another
+  -- card on this floor is replaced with the next free one, and the caller
+  -- reads the number it actually got out of the row returned below. The loop
+  -- is because the counter behind next_job_number() has no idea what the
+  -- offline clients have handed out in the meantime.
+  if num = '' or exists (
+       select 1 from public.job_cards j
+        where j.garage_id = gid and j.number = num and j.id <> cid) then
+    loop
+      num := public.next_job_number(gid);
+      exit when not exists (
+        select 1 from public.job_cards j
+         where j.garage_id = gid and j.number = num and j.id <> cid);
+    end loop;
+  end if;
+
   insert into public.job_cards (
     id, garage_id, customer_id, vehicle_id, number, status,
     created_at, completed_at, closed_at, promised_at,
@@ -363,7 +392,7 @@ begin
     cid, gid,
     payload ->> 'customer_id',
     payload ->> 'vehicle_id',
-    coalesce(payload ->> 'number', ''),
+    num,
     coalesce(payload ->> 'status', 'open'),
     coalesce((payload ->> 'created_at')::timestamptz, now()),
     (payload ->> 'completed_at')::timestamptz,
@@ -386,7 +415,11 @@ begin
   on conflict (id) do update set
     customer_id      = excluded.customer_id,
     vehicle_id       = excluded.vehicle_id,
-    number           = excluded.number,
+    -- A number is minted once and never changes. Keeping the stored one
+    -- means a later edit from a device that still remembers the number it
+    -- proposed cannot rename a card that is already on a printed bill.
+    number           = coalesce(nullif(job_cards.number, ''),
+                                excluded.number),
     status           = excluded.status,
     completed_at     = excluded.completed_at,
     closed_at        = excluded.closed_at,
@@ -507,6 +540,30 @@ set search_path = public as $fn$
       'reviews', coalesce((
         select jsonb_agg(to_jsonb(r) - 'garage_id' - 'profile_id')
         from public.reviews r where r.garage_id = gid), '[]'::jsonb),
+      'expenses', coalesce((
+        select jsonb_agg(to_jsonb(e) - 'garage_id' - 'created_at'
+                         order by e.at desc)
+        from public.expenses e where e.garage_id = gid), '[]'::jsonb),
+      'cash_book', coalesce((
+        select jsonb_agg(to_jsonb(c) - 'garage_id' - 'created_at'
+                         order by c.at desc)
+        from public.cash_book c where c.garage_id = gid), '[]'::jsonb),
+      'suppliers', coalesce((
+        select jsonb_agg(to_jsonb(s) - 'garage_id' - 'created_at'
+                         order by s.name)
+        from public.suppliers s where s.garage_id = gid), '[]'::jsonb),
+      'counter_sales', coalesce((
+        select jsonb_agg(to_jsonb(cs) - 'garage_id' - 'created_at'
+                         order by cs.at desc)
+        from public.counter_sales cs where cs.garage_id = gid), '[]'::jsonb),
+      'purchase_orders', coalesce((
+        select jsonb_agg(to_jsonb(po) - 'garage_id' - 'created_at'
+                         order by po.at desc)
+        from public.purchase_orders po where po.garage_id = gid), '[]'::jsonb),
+      'online_services', coalesce((
+        select jsonb_agg(to_jsonb(os) - 'garage_id' - 'created_at'
+                         order by os.name)
+        from public.online_services os where os.garage_id = gid), '[]'::jsonb),
       'job_cards', coalesce((
         select jsonb_agg(public.job_card_json(j) order by j.created_at desc)
         from public.job_cards j where j.garage_id = gid), '[]'::jsonb))
@@ -629,7 +686,7 @@ declare t text;
 begin
   foreach t in array array[
     'vehicles','addresses','bookings','inspections','estimates',
-    'invoices','notifications','tickets','chat_messages','sos_requests'
+    'invoices','notifications','tickets','chat_messages'
   ] loop
     execute format('drop policy if exists %I_own on public.%I', t, t);
     execute format(
@@ -691,9 +748,16 @@ begin
     'masters','job_cards','line_items','payments','sms_events',
     'garage_bookings','reviews','profiles','vehicles','addresses','bookings',
     'inspections','estimates','invoices','notifications','tickets',
-    'chat_messages','sos_requests'
+    'chat_messages','expenses','cash_book','suppliers',
+    'counter_sales','purchase_orders','online_services'
   ] loop
-    execute format('revoke all on public.%I from anon', t);
+    -- A table that is not there yet on a part-migrated project must not
+    -- abort the rest of this file, which is how one of these scripts stops
+    -- halfway and leaves a database nobody can tell is incomplete.
+    begin
+      execute format('revoke all on public.%I from anon', t);
+    exception when undefined_table then null;
+    end;
   end loop;
 end $blk$;
 
@@ -709,7 +773,9 @@ declare t text;
 begin
   foreach t in array array[
     'job_cards','line_items','payments','sms_events','garage_bookings',
-    'garage_customers','garage_vehicles','masters','staff','reviews','garages'
+    'garage_customers','garage_vehicles','masters','staff','reviews','garages',
+    'expenses','cash_book','suppliers','counter_sales','purchase_orders',
+    'online_services'
   ] loop
     begin
       execute format(

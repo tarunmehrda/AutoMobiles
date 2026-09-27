@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'data/repo/auth_service.dart';
+import 'data/repo/push_service.dart';
 import 'state/app_state.dart';
 
 Future<void> main() async {
@@ -20,6 +21,8 @@ Future<void> main() async {
   // Backend first (a no-op until credentials are configured), then the
   // on-device store that the whole app reads from synchronously.
   await AuthService.instance.init();
+  // Tray notifications; a no-op on a build without a Firebase project.
+  await PushService.instance.init();
   await initLocalStore();
 
   runApp(const ProviderScope(child: BalajiApp()));

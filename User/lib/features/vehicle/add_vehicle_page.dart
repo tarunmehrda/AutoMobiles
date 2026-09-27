@@ -65,7 +65,10 @@ class _AddVehiclePageState extends ConsumerState<AddVehiclePage> {
     final v = ref.read(appControllerProvider).vehicleById(widget.editingId);
     if (v == null) return;
     setState(() {
-      _brand = Seed.brandByName(v.brand);
+      // A car added by hand has a brand the catalogue does not know. It
+      // still needs one here, or Save quietly does nothing on it for ever.
+      _brand = Seed.brandByName(v.brand) ??
+          VehicleBrand(id: 'custom', name: v.brand, logoUrl: '');
       _model = Seed.models.firstWhere(
         (m) => m.name == v.model,
         orElse: () => VehicleModel(
@@ -152,12 +155,13 @@ class _AddVehiclePageState extends ConsumerState<AddVehiclePage> {
       body: _model!.body,
       variant: _variant,
       odometerKm: km,
-      insuranceExpiry: _insurance ??
-          DateTime.now().add(const Duration(days: 128)),
-      pucExpiry: _puc ?? DateTime.now().add(const Duration(days: 21)),
+      // Blank stays blank. These used to be made up — insurance due in 128
+      // days, PUC in 21, a service 186 days ago — and the reminders then
+      // counted down to dates nobody had given us. The screens say "Not
+      // set" instead, and the first real service fills the last one in.
+      insuranceExpiry: _insurance,
+      pucExpiry: _puc,
       vin: _vin.text.trim().isEmpty ? null : _vin.text.trim().toUpperCase(),
-      lastServiceDate: DateTime.now().subtract(const Duration(days: 186)),
-      lastServiceKm: km > 9000 ? km - 9000 : null,
     );
 
     controller.addVehicle(vehicle);
@@ -168,6 +172,49 @@ class _AddVehiclePageState extends ConsumerState<AddVehiclePage> {
       context.pop();
     }
     GFeedback.success(context, '${vehicle.title} added to your garage');
+  }
+
+  /// A car that is not in the catalogue, typed in by hand.
+  ///
+  /// Without this a customer with an older import or a rare model had no way
+  /// past the Brand step, and the router will not let anyone in without a
+  /// vehicle — they were locked out of the app. The car goes on through the
+  /// same fuel, gearbox and details steps as any other, as a catalogue entry
+  /// with the id `custom`, which every photo and logo lookup already treats
+  /// as "draw the body type" and "draw a monogram".
+  ///
+  /// [askBrand] when the brand itself is missing (or was typed in before),
+  /// with [brandHint] — whatever they had searched for — filled in.
+  Future<void> _addUnlisted({
+    required bool askBrand,
+    String brandHint = '',
+  }) async {
+    final typed = _model?.id == 'custom' ? _model : null;
+    final picked = await GFeedback.sheet<_UnlistedCar>(
+      context,
+      title: askBrand ? 'Add your car' : 'Add your ${_brand?.name ?? ''} model',
+      subtitle: 'Type it as it reads on your RC',
+      child: _UnlistedCarSheet(
+        askBrand: askBrand,
+        brand: brandHint,
+        model: typed?.name ?? '',
+        body: typed?.body,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (askBrand) {
+        _brand = VehicleBrand(id: 'custom', name: picked.brand, logoUrl: '');
+      }
+      _model = VehicleModel(
+        id: 'custom',
+        brandId: _brand?.id ?? 'custom',
+        name: picked.model,
+        body: picked.body,
+      );
+      _variant = null;
+    });
+    _goto(2);
   }
 
   @override
@@ -218,6 +265,8 @@ class _AddVehiclePageState extends ConsumerState<AddVehiclePage> {
                 });
                 _goto(1);
               },
+              onUnlisted: (query) =>
+                  _addUnlisted(askBrand: true, brandHint: query),
             ),
             _ModelStep(
               brand: _brand,
@@ -229,6 +278,10 @@ class _AddVehiclePageState extends ConsumerState<AddVehiclePage> {
                 });
                 _goto(2);
               },
+              onUnlisted: () => _addUnlisted(
+                askBrand: _brand?.id == 'custom',
+                brandHint: _brand?.id == 'custom' ? _brand!.name : '',
+              ),
             ),
             _ConfigStep(
               model: _model,
@@ -278,10 +331,17 @@ class _AddVehiclePageState extends ConsumerState<AddVehiclePage> {
 // ---------------------------------------------------------------------------
 
 class _BrandStep extends StatefulWidget {
-  const _BrandStep({required this.selected, required this.onSelect});
+  const _BrandStep({
+    required this.selected,
+    required this.onSelect,
+    required this.onUnlisted,
+  });
 
   final VehicleBrand? selected;
   final ValueChanged<VehicleBrand> onSelect;
+
+  /// "My car's brand isn't listed", with whatever is in the search box.
+  final ValueChanged<String> onUnlisted;
 
   @override
   State<_BrandStep> createState() => _BrandStepState();
@@ -323,6 +383,20 @@ class _BrandStepState extends State<_BrandStep> {
                       _search.clear();
                       setState(() => _query = '');
                     },
+            ),
+          ),
+        ),
+        // Above the lists, not at the end of them: the customer who needs it
+        // is the one who has just not found their brand, and should not have
+        // to scroll past eighteen others to learn there is a way through.
+        SliverToBoxAdapter(
+          child: Padding(
+            padding:
+                const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.sm),
+            child: _UnlistedRow(
+              title: "My car's brand isn't listed",
+              subtitle: 'Type in the brand and model yourself',
+              onTap: () => widget.onUnlisted(_query.trim()),
             ),
           ),
         ),
@@ -424,11 +498,15 @@ class _ModelStep extends StatelessWidget {
     required this.brand,
     required this.selected,
     required this.onSelect,
+    required this.onUnlisted,
   });
 
   final VehicleBrand? brand;
   final VehicleModel? selected;
   final ValueChanged<VehicleModel> onSelect;
+
+  /// "My model isn't listed".
+  final VoidCallback onUnlisted;
 
   @override
   Widget build(BuildContext context) {
@@ -454,14 +532,25 @@ class _ModelStep extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(brand!.name, style: AppType.h1.c(p.ink)),
-                  Text('${models.length} models serviced',
+                  Text(
+                      models.isEmpty
+                          ? 'Added by hand'
+                          : '${models.length} models serviced',
                       style: AppType.bodyS.c(p.inkMuted)),
                 ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: Gap.xl),
+        const SizedBox(height: Gap.lg),
+        _UnlistedRow(
+          title: selected?.id == 'custom'
+              ? 'Change ${selected!.name}'
+              : "My model isn't listed",
+          subtitle: 'Type in the model and pick its body type',
+          onTap: onUnlisted,
+        ),
+        const SizedBox(height: Gap.lg),
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -553,6 +642,176 @@ class _ModelStep extends StatelessWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+/// The way out of the catalogue on the Brand and Model steps — a row in the
+/// same frame as the brand list, so it reads as one more choice rather than
+/// as an error.
+class _UnlistedRow extends StatelessWidget {
+  const _UnlistedRow({
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(Gap.md),
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: R.all(R.md),
+          border: Border.all(color: p.line),
+        ),
+        child: Row(
+          children: [
+            Container(
+              height: 38,
+              width: 38,
+              decoration: BoxDecoration(
+                color: p.accentSoft,
+                borderRadius: R.all(R.sm),
+              ),
+              child: Icon(Icons.edit_rounded, size: 18, color: p.accentInk),
+            ),
+            const SizedBox(width: Gap.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: AppType.labelL.c(p.ink)),
+                  Text(subtitle, style: AppType.bodyS.c(p.inkMuted)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: p.inkFaint, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// What the hand-typed form hands back.
+typedef _UnlistedCar = ({String brand, String model, BodyType body});
+
+/// Brand (when it is the brand that is missing), model and body type for a
+/// car the catalogue does not have.
+///
+/// The body type is asked for rather than guessed: it picks the photo the
+/// rest of the app shows for the car and travels to the workshop with it,
+/// and a made-up "Hatchback" on somebody's SUV is exactly the sort of
+/// invented detail this page has stopped writing.
+class _UnlistedCarSheet extends StatefulWidget {
+  const _UnlistedCarSheet({
+    required this.askBrand,
+    this.brand = '',
+    this.model = '',
+    this.body,
+  });
+
+  final bool askBrand;
+  final String brand;
+  final String model;
+  final BodyType? body;
+
+  @override
+  State<_UnlistedCarSheet> createState() => _UnlistedCarSheetState();
+}
+
+class _UnlistedCarSheetState extends State<_UnlistedCarSheet> {
+  late final _brand = TextEditingController(text: widget.brand);
+  late final _model = TextEditingController(text: widget.model);
+  late BodyType? _body = widget.body;
+
+  @override
+  void dispose() {
+    _brand.dispose();
+    _model.dispose();
+    super.dispose();
+  }
+
+  bool get _ready =>
+      (!widget.askBrand || _brand.text.trim().isNotEmpty) &&
+      _model.text.trim().isNotEmpty &&
+      _body != null;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+          Gap.page,
+          Gap.lg,
+          Gap.page,
+          Gap.h1 +
+              MediaQuery.viewInsetsOf(context).bottom +
+              MediaQuery.viewPaddingOf(context).bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.askBrand) ...[
+            GField(
+              label: 'Brand',
+              hint: 'e.g. Chevrolet',
+              controller: _brand,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.next,
+              maxLength: 40,
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: Gap.lg),
+          ],
+          GField(
+            label: 'Model',
+            hint: 'e.g. Beat LT',
+            controller: _model,
+            autofocus: !widget.askBrand,
+            textCapitalization: TextCapitalization.words,
+            maxLength: 40,
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: Gap.lg),
+          Text('Body type', style: AppType.labelM.c(p.inkSoft)),
+          const SizedBox(height: Gap.sm),
+          Wrap(
+            spacing: Gap.sm,
+            runSpacing: Gap.sm,
+            children: [
+              for (final b in BodyType.values)
+                _OptionChip(
+                  label: b.label,
+                  icon: _bodyIcon(b),
+                  selected: _body == b,
+                  onTap: () => setState(() => _body = b),
+                ),
+            ],
+          ),
+          const SizedBox(height: Gap.xl),
+          GButton.accent(
+            label: 'Continue',
+            trailingIcon: Icons.arrow_forward_rounded,
+            onPressed: _ready
+                ? () => Navigator.of(context).pop<_UnlistedCar>((
+                      brand: _brand.text.trim(),
+                      model: _model.text.trim(),
+                      body: _body!,
+                    ))
+                : null,
+          ),
+        ],
+      ),
     );
   }
 }

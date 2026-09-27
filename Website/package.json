@@ -1,0 +1,25 @@
+{
+  "name": "balaji-automobiles-website",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Marketing site for the Balaji Automobiles customer app and workshop console.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "check": "node tools/check.mjs",
+    "shots": "node tools/shoot.mjs",
+    "build:portable": "node tools/build-portable.mjs"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "puppeteer-core": "^25.11.0",
+    "vite": "^8.3.0"
+  }
+}

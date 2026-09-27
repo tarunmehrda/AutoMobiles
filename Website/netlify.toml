@@ -1,0 +1,29 @@
+# Netlify build configuration.
+#
+# Headers and the single-page fallback live in public/_headers and
+# public/_redirects, which Vite copies into dist/ untouched. Keeping them there
+# rather than duplicating them here means a local `npm run preview` and a
+# deploy on any other host behave the same way.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Do not add --omit=dev here: Vite and the React plugin are devDependencies,
+  # so skipping them removes the thing that does the building.
+
+# Deploy previews and branch builds must not be indexed — only the live site.
+[context.deploy-preview]
+  command = "npm run build"
+
+[[context.deploy-preview.headers]]
+  for = "/*"
+  [context.deploy-preview.headers.values]
+    X-Robots-Tag = "noindex"
+
+[[context.branch-deploy.headers]]
+  for = "/*"
+  [context.branch-deploy.headers.values]
+    X-Robots-Tag = "noindex"

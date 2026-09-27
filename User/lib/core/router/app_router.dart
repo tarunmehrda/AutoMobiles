@@ -3,42 +3,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/account/account_page.dart';
-import '../../features/account/addresses_page.dart';
+import '../../features/account/privacy_page.dart';
 import '../../features/account/profile_page.dart';
-import '../../features/account/settings_page.dart';
 import '../../features/auth/login_page.dart';
 import '../../features/auth/profile_setup_page.dart';
-import '../../features/booking/cart_page.dart';
-import '../../features/booking/checkout_page.dart';
-import '../../features/booking/success_page.dart';
-import '../../features/catalog/book_page.dart';
-import '../../features/catalog/category_page.dart';
-import '../../features/catalog/search_page.dart';
-import '../../features/catalog/service_detail_page.dart';
-import '../../features/estimate/estimate_page.dart';
+import '../../features/booking/appointment_page.dart';
 import '../../features/history/bookings_page.dart';
-import '../../features/history/history_page.dart';
 import '../../features/home/home_page.dart';
 import '../../features/invoice/invoice_page.dart';
-import '../../features/jobcard/job_card_page.dart';
 import '../../features/notifications/notifications_page.dart';
-import '../../features/offers/offers_page.dart';
+import '../../features/marketplace/marketplace_page.dart';
+import '../../features/marketplace/need_part_page.dart';
+import '../../features/marketplace/sell_part_page.dart';
 import '../../features/onboarding/onboarding_page.dart';
-import '../../features/payment/payment_page.dart';
-import '../../features/payment/payment_success_page.dart';
+import '../../features/partner/partner_page.dart';
+import '../../features/search/garage_search_page.dart';
+import '../../features/splash/restoring_page.dart';
 import '../../features/splash/splash_page.dart';
-import '../../features/support/chat_page.dart';
 import '../../features/support/help_page.dart';
-import '../../features/support/support_page.dart';
-import '../../features/support/tickets_page.dart';
-import '../../features/tracking/inspection_page.dart';
-import '../../features/tracking/review_page.dart';
-import '../../features/tracking/tracking_page.dart';
-import '../../features/workshop/workshop_card_page.dart';
 import '../../features/vehicle/add_vehicle_page.dart';
 import '../../features/vehicle/garage_page.dart';
 import '../../features/vehicle/vehicle_detail_page.dart';
 import '../../state/app_state.dart';
+import '../../state/auth_state.dart';
 import '../theme/app_tokens.dart';
 import 'app_shell.dart';
 
@@ -55,6 +42,11 @@ class _RouterRefresh extends ChangeNotifier {
           prev?.onboarded != next.onboarded ||
           (prev?.vehicles.isEmpty ?? true) != next.vehicles.isEmpty;
       if (changed) notifyListeners();
+    });
+    // The gate also waits on the account arriving, so it has to re-run when
+    // that lands.
+    ref.listen(restoringProvider, (prev, next) {
+      if (prev != next) notifyListeners();
     });
   }
 
@@ -86,22 +78,33 @@ final routerProvider = Provider<GoRouter>((ref) {
         const authRoutes = {'/login'};
         return authRoutes.contains(loc) ? null : '/login';
       }
+      // Signed in, but the account is still on its way down. Deciding now is
+      // what used to skip the sign-up steps for somebody signing back in.
+      if (ref.read(restoringProvider)) {
+        return loc == '/restoring' ? null : '/restoring';
+      }
       if (!profileDone) {
         return loc == '/profile-setup' ? null : '/profile-setup';
       }
       if (!hasVehicle) {
         return loc == '/vehicle/add' ? null : '/vehicle/add';
       }
-      const gateRoutes = {'/login', '/onboarding', '/profile-setup'};
+      const gateRoutes = {
+        '/login',
+        '/onboarding',
+        '/profile-setup',
+        '/restoring',
+      };
       if (gateRoutes.contains(loc)) return '/home';
       return null;
     },
     routes: [
-      GoRoute(path: '/splash', builder: (_, __) => const SplashPage()),
-      GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingPage()),
-      GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
+      GoRoute(path: '/splash', builder: (_, _) => const SplashPage()),
+      GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingPage()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
+      GoRoute(path: '/restoring', builder: (_, _) => const RestoringPage()),
       GoRoute(
-          path: '/profile-setup', builder: (_, __) => const ProfileSetupPage()),
+          path: '/profile-setup', builder: (_, _) => const ProfileSetupPage()),
       GoRoute(
         path: '/vehicle/add',
         builder: (_, state) => AddVehiclePage(
@@ -109,110 +112,81 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
-      // ---- tab shell -----------------------------------------------------
+      // ---- the four tabs -------------------------------------------------
       StatefulShellRoute.indexedStack(
         parentNavigatorKey: _rootKey,
         builder: (context, state, shell) => AppShell(shell: shell),
         branches: [
           StatefulShellBranch(navigatorKey: _shellKey, routes: [
-            GoRoute(path: '/home', builder: (_, __) => const HomePage()),
+            GoRoute(path: '/home', builder: (_, _) => const HomePage()),
           ]),
           StatefulShellBranch(routes: [
-            GoRoute(path: '/book', builder: (_, __) => const BookPage()),
+            GoRoute(
+              path: '/bookings',
+              builder: (_, state) =>
+                  BookingsPage(focusId: state.uri.queryParameters['open']),
+            ),
           ]),
           StatefulShellBranch(routes: [
-            GoRoute(path: '/garage', builder: (_, __) => const GaragePage()),
+            GoRoute(path: '/garage', builder: (_, _) => const GaragePage()),
           ]),
           StatefulShellBranch(routes: [
-            GoRoute(path: '/support', builder: (_, __) => const SupportPage()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(path: '/account', builder: (_, __) => const AccountPage()),
+            GoRoute(path: '/account', builder: (_, _) => const AccountPage()),
           ]),
         ],
       ),
 
-      // ---- catalogue -----------------------------------------------------
+      // ---- booking a slot ------------------------------------------------
+      GoRoute(
+        path: '/book',
+        pageBuilder: (_, state) => _fadeUp(
+          state,
+          AppointmentPage(
+            vehicleId: state.uri.queryParameters['vehicle'],
+            garageId: state.uri.queryParameters['garage'],
+          ),
+        ),
+      ),
+
+      // ---- finding a workshop --------------------------------------------
+      // Outside the tabs on purpose: searching is something a customer does
+      // occasionally, and it should not cost a permanent tab that the
+      // customer who already has a workshop would never press.
       GoRoute(
         path: '/search',
         pageBuilder: (_, state) => _fadeUp(
-            state,
-            SearchPage(initialQuery: state.uri.queryParameters['q']),
-          ),
-      ),
-      GoRoute(
-        path: '/category/:id',
-        builder: (_, state) =>
-            CategoryPage(categoryId: state.pathParameters['id']!),
-      ),
-      GoRoute(
-        path: '/service/:id',
-        builder: (_, state) =>
-            ServiceDetailPage(packageId: state.pathParameters['id']!),
+          state,
+          GarageSearchPage(pick: state.uri.queryParameters['pick'] == '1'),
+        ),
       ),
 
-      // ---- booking flow --------------------------------------------------
+      // ---- parts, bought and sold ----------------------------------------
       GoRoute(
-        path: '/cart',
-        pageBuilder: (_, state) => _fadeUp(state, const CartPage()),
-      ),
-      GoRoute(path: '/checkout', builder: (_, __) => const CheckoutPage()),
-      GoRoute(
-        path: '/booking-success/:id',
-        pageBuilder: (_, state) =>
-            _fadeUp(state, SuccessPage(bookingId: state.pathParameters['id']!)),
+        path: '/parts',
+        pageBuilder: (_, state) => _fadeUp(state, const MarketplacePage()),
+        routes: [
+          // Children of /parts so that popping either form lands back on the
+          // list it was started from, rather than on whatever screen the
+          // customer happened to be on before.
+          GoRoute(
+            path: 'need',
+            parentNavigatorKey: _rootKey,
+            builder: (_, _) => const NeedPartPage(),
+          ),
+          GoRoute(
+            path: 'sell',
+            parentNavigatorKey: _rootKey,
+            builder: (_, _) => const SellPartPage(),
+          ),
+        ],
       ),
 
       // ---- the workshop's own job cards ----------------------------------
+      // The detail lives in the booking sheet; this is the printable bill.
       GoRoute(
-        path: '/workshop/:id',
+        path: '/workshop/:id/invoice',
         builder: (_, state) =>
-            WorkshopCardPage(id: state.pathParameters['id']!),
-      ),
-
-      // ---- bookings ------------------------------------------------------
-      GoRoute(path: '/bookings', builder: (_, __) => const BookingsPage()),
-      GoRoute(
-        path: '/booking/:id',
-        builder: (_, state) =>
-            TrackingPage(bookingId: state.pathParameters['id']!),
-        routes: [
-          GoRoute(
-            path: 'jobcard',
-            builder: (_, state) =>
-                JobCardPage(bookingId: state.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: 'inspection',
-            builder: (_, state) =>
-                InspectionPage(bookingId: state.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: 'estimate',
-            builder: (_, state) =>
-                EstimatePage(bookingId: state.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: 'invoice',
-            builder: (_, state) =>
-                InvoicePage(bookingId: state.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: 'pay',
-            builder: (_, state) =>
-                PaymentPage(bookingId: state.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: 'paid',
-            pageBuilder: (_, state) => _fadeUp(
-                state, PaymentSuccessPage(bookingId: state.pathParameters['id']!)),
-          ),
-          GoRoute(
-            path: 'review',
-            pageBuilder: (_, state) => _fadeUp(
-                state, ReviewPage(bookingId: state.pathParameters['id']!)),
-          ),
-        ],
+            InvoicePage(cardId: state.pathParameters['id']!),
       ),
 
       // ---- garage --------------------------------------------------------
@@ -221,22 +195,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) =>
             VehicleDetailPage(vehicleId: state.pathParameters['id']!),
       ),
-      GoRoute(path: '/history', builder: (_, __) => const HistoryPage()),
 
-      // ---- support -------------------------------------------------------
-      GoRoute(path: '/chat', builder: (_, __) => const ChatPage()),
-      GoRoute(path: '/help', builder: (_, __) => const HelpPage()),
-      GoRoute(path: '/tickets', builder: (_, __) => const TicketsPage()),
       // ---- account -------------------------------------------------------
-      GoRoute(path: '/profile', builder: (_, __) => const ProfilePage()),
-      GoRoute(path: '/addresses', builder: (_, __) => const AddressesPage()),
-      GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
+      GoRoute(path: '/profile', builder: (_, _) => const ProfilePage()),
+      GoRoute(path: '/privacy', builder: (_, _) => const PrivacyPage()),
+      GoRoute(path: '/help', builder: (_, _) => const HelpPage()),
+      // Registering a workshop. Reached from the account screen, not the
+      // tabs: most customers are not garage owners.
+      GoRoute(path: '/partner', builder: (_, _) => const PartnerPage()),
       GoRoute(
-          path: '/notifications', builder: (_, __) => const NotificationsPage()),
-      GoRoute(path: '/offers', builder: (_, __) => const OffersPage()),
+          path: '/notifications', builder: (_, _) => const NotificationsPage()),
     ],
     errorBuilder: (context, state) => Scaffold(
-      body: Center(child: Text('Nothing here: ${state.uri}')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.page),
+          child: Text('Nothing here: ${state.uri}'),
+        ),
+      ),
     ),
   );
 });
