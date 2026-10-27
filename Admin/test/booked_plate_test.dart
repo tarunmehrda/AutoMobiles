@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:garagepro_admin/core/theme/app_theme.dart';
+import 'package:garagepro_admin/core/widgets/g_field.dart';
 import 'package:garagepro_admin/data/models/entities.dart';
 import 'package:garagepro_admin/data/models/enums.dart';
 import 'package:garagepro_admin/data/repo/local_store.dart';
@@ -80,32 +81,53 @@ Future<void> _open(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(
-        theme: AppTheme.light(),
-        routerConfig: router,
-      ),
+      child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
     ),
   );
   await tester.pumpAndSettle();
 }
 
-Future<void> _search(WidgetTester tester, String plate) async {
+/// From the customer step: the plate typed into the one search box, then
+/// carried to the vehicle step as a number nobody has on record yet.
+Future<void> _searchFromStart(WidgetTester tester, String plate) async {
   await tester.enterText(find.byType(TextField).hitTestable().first, plate);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('New vehicle — use this number').hitTestable());
+  await tester.pumpAndSettle();
+}
+
+/// On the vehicle step: typed into the plate field, then Search.
+Future<void> _search(WidgetTester tester, String plate) async {
+  final field = find.descendant(
+    of: find.byWidgetPredicate(
+      (w) => w is GField && (w.label ?? '').startsWith('Vehicle Number'),
+    ),
+    matching: find.byType(TextField),
+  );
+  await tester.enterText(field.hitTestable(), plate);
   await tester.pump();
   await tester.tap(find.text('Search').hitTestable());
   await tester.pumpAndSettle();
 }
 
-/// Next, Next, Open Card: the handover and the bill left as they came.
+/// Next or Skip through damage, voice and services, then Open Job Card:
+/// the handover and the bill left as they came.
 Future<JobCard> _openCard(
   WidgetTester tester,
   ProviderContainer container,
 ) async {
-  for (var i = 0; i < 2; i++) {
-    await tester.tap(find.text('Next').hitTestable());
+  final open = find.textContaining('Open Job Card').hitTestable();
+  for (var i = 0; i < 6 && open.evaluate().isEmpty; i++) {
+    final next = find.text('Next').hitTestable();
+    // The bottom bar comes after the form in the tree, so of the Skips on
+    // the voice step — one per section heading, one in the bar — the last
+    // is the bar's.
+    await tester.tap(
+      next.evaluate().isNotEmpty ? next : find.text('Skip').hitTestable().last,
+    );
     await tester.pumpAndSettle();
   }
-  await tester.tap(find.textContaining('Open Card').hitTestable());
+  await tester.tap(open);
   await tester.pumpAndSettle();
   // LocalStore debounces its write.
   await tester.pump(const Duration(seconds: 5));
@@ -122,24 +144,18 @@ void main() {
     addTearDown(container.dispose);
     await _open(tester, container);
 
-    // Typed the way a counter types it.
-    await _search(tester, 'rj 14 cx 4455');
+    // Typed the way a counter types it, into the one search box.
+    await _searchFromStart(tester, 'rj 14 cx 4455');
 
-    expect(find.text('BOOKED IN THE CUSTOMER APP'), findsOneWidget);
-    expect(find.text('Vehicle not registered yet'), findsNothing);
-    expect(find.text('ADD A NEW VEHICLE'), findsNothing);
-    expect(find.text('Amit Verma'), findsOneWidget);
-    expect(find.textContaining('AC not cooling'), findsOneWidget);
-
-    await tester.tap(find.text('CONTINUE TO DETAILS'));
-    await tester.pumpAndSettle();
-
-    // The booking stays in view on the details step, and the year — which
-    // has no field of its own — is on the vehicle card.
+    // On the vehicle step, with the booking in view and everything in it
+    // carried over — the year included.
     expect(
       find.text('BOOKED IN THE CUSTOMER APP').hitTestable(),
       findsOneWidget,
     );
+    expect(find.text('Vehicle not registered yet'), findsNothing);
+    expect(find.text('Amit Verma').hitTestable(), findsOneWidget);
+    expect(find.textContaining('AC not cooling').hitTestable(), findsWidgets);
     expect(find.textContaining('Manual  •  2021'), findsOneWidget);
 
     final card = await _openCard(tester, container);
@@ -150,11 +166,10 @@ void main() {
     expect(owner.name, 'Amit Verma');
     expect(owner.phone, '9001122334');
     expect(vehicle.regNo, 'rj 14 cx 4455'.toUpperCase());
-    expect((vehicle.brand, vehicle.model, vehicle.variant), (
-      'Hyundai',
-      'Creta',
-      'SX',
-    ));
+    expect(
+      (vehicle.brand, vehicle.model, vehicle.variant),
+      ('Hyundai', 'Creta', 'SX'),
+    );
     expect(vehicle.fuel, FuelType.diesel);
     expect(vehicle.transmission, Transmission.manual);
     expect(vehicle.year, 2021);
@@ -177,15 +192,13 @@ void main() {
     addTearDown(container.dispose);
     await _open(tester, container);
 
-    await _search(tester, 'RJ14CX4455');
-    expect(find.text('BOOKED IN THE CUSTOMER APP'), findsOneWidget);
+    await _searchFromStart(tester, 'RJ14CX4455');
+    expect(find.text('BOOKED IN THE CUSTOMER APP'), findsWidgets);
 
     await _search(tester, 'DL01AA0001');
     expect(find.text('BOOKED IN THE CUSTOMER APP'), findsNothing);
     expect(find.text('Vehicle not registered yet'), findsOneWidget);
 
-    await tester.tap(find.text('ONBOARD NEW CUSTOMER'));
-    await tester.pumpAndSettle();
     final card = await _openCard(tester, container);
 
     // Not this car's complaints, and not this car's booking.

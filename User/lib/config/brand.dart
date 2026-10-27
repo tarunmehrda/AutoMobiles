@@ -51,8 +51,8 @@ class Brand {
   // Art
   // ---------------------------------------------------------------------
 
-  /// The gear mark, cut in two inks from one master: the near-black for
-  /// paper coloured surfaces, the amber for carbon ones. [logoBadge] is the
+  /// The full emblem, used exactly as supplied; drawn for a dark ground, so
+  /// both slots hold the same file. [logoBadge] is the
   /// same mark pre-composited on its carbon tile, for anything generated
   /// outside the app. Painted through `BrandArt` in `core/widgets/`.
   static const String logoMarkLight = 'assets/logo/mark_light.png';

@@ -417,11 +417,17 @@ class _BrandStepState extends State<_BrandStep> {
             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
             sliver: SliverGrid(
               gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
+                  SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 mainAxisSpacing: Gap.md,
                 crossAxisSpacing: Gap.md,
-                childAspectRatio: 0.92,
+                mainAxisExtent: BrandTile.height(
+                  context,
+                  (MediaQuery.sizeOf(context).width -
+                          Gap.page * 2 -
+                          Gap.md * 2) /
+                      3,
+                ),
               ),
               delegate: SliverChildBuilderDelegate(
                 (context, i) => Entrance(

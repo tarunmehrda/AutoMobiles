@@ -89,24 +89,36 @@ class _OnlineGaragePageState extends ConsumerState<OnlineGaragePage> {
                     ),
                   ),
                 ),
-                Text(
-                  'Disable'.tr,
-                  style: AppType.labelM.c(on ? p.inkFaint : p.danger),
-                ),
-                const SizedBox(width: Gap.sm),
-                Switch(
-                  value: on,
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: p.info,
-                  onChanged: (v) {
-                    HapticFeedback.mediumImpact();
-                    ref.read(adminProvider.notifier).setOnlineGarage(v);
-                  },
-                ),
-                SizedBox(width: Gap.sm),
-                Text(
-                  'Enable'.tr,
-                  style: AppType.labelM.c(on ? p.success : p.inkFaint),
+                // Shrinks as one piece on a narrow phone with a large font,
+                // rather than pushing the switch off the edge.
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Disable'.tr,
+                          style: AppType.labelM.c(on ? p.inkFaint : p.danger),
+                        ),
+                        const SizedBox(width: Gap.sm),
+                        Switch(
+                          value: on,
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: p.info,
+                          onChanged: (v) {
+                            HapticFeedback.mediumImpact();
+                            ref.read(adminProvider.notifier).setOnlineGarage(v);
+                          },
+                        ),
+                        const SizedBox(width: Gap.sm),
+                        Text(
+                          'Enable'.tr,
+                          style: AppType.labelM.c(on ? p.success : p.inkFaint),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),

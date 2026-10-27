@@ -234,7 +234,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
     await GFeedback.sheet<void>(
       context,
       title: row.name,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -61,7 +61,7 @@ class _RequestCardState extends ConsumerState<RequestCard> {
       context,
       title: 'Quote ${r.code}',
       subtitle: r.partName,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -132,20 +132,28 @@ class _RequestCardState extends ConsumerState<RequestCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               // The code, first and monospaced-looking, because every phone
               // call about this row opens with it.
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: Gap.md, vertical: Gap.xs),
-                decoration: BoxDecoration(
-                  color: p.surfaceSunken,
-                  borderRadius: R.rSm,
-                  border: Border.all(color: p.line),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: Gap.md, vertical: Gap.xs),
+                  decoration: BoxDecoration(
+                    color: p.surfaceSunken,
+                    borderRadius: R.rSm,
+                    border: Border.all(color: p.line),
+                  ),
+                  child: Text(
+                    r.code,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.labelM.c(p.ink),
+                  ),
                 ),
-                child: Text(r.code, style: AppType.labelM.c(p.ink)),
               ),
-              const Spacer(),
+              const SizedBox(width: Gap.sm),
               GPill(
                 label: r.status,
                 tone: toneForStatus(r.status),
@@ -192,7 +200,16 @@ class _RequestCardState extends ConsumerState<RequestCard> {
               children: [
                 Text('Quoted', style: AppType.labelS.c(p.inkMuted)),
                 const SizedBox(width: Gap.sm),
-                Text(Fmt.money(r.quote!), style: AppType.money.c(p.success)),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      Fmt.money(r.quote!),
+                      style: AppType.money.c(p.success),
+                    ),
+                  ),
+                ),
               ],
             ),
           ],

@@ -117,7 +117,7 @@ class _BookingDetailsSheet extends ConsumerWidget {
                   icon: Icons.directions_car_rounded,
                   title: 'Vehicle Information',
                   rows: [
-                    ('Vehicle', card.vehicleTitle),
+                    ('Vehicle', card.vehicleName),
                     ('Number', Fmt.plate(card.regNo)),
                     (
                       'Service Type',
@@ -136,10 +136,27 @@ class _BookingDetailsSheet extends ConsumerWidget {
                   rows: [
                     ('Drop-off Date', Fmt.date(card.openedAt)),
                     ('Drop-off Time', Fmt.time(card.openedAt)),
+                    // Date and time: "ready by evening" is a different promise
+                    // from "ready tomorrow".
                     if (card.promisedAt != null)
-                      ('Expected Completion', Fmt.date(card.promisedAt!)),
+                      ('Expected Delivery', Fmt.fullDateTime(card.promisedAt!)),
                   ],
                 ),
+                if (card.hasInsurance) ...[
+                  const SizedBox(height: Gap.lg),
+                  _Section(
+                    icon: Icons.verified_user_rounded,
+                    title: 'Insurance',
+                    rows: [
+                      if (card.insurer.trim().isNotEmpty)
+                        ('Insurer', card.insurer.trim()),
+                      if (card.policyNo.trim().isNotEmpty)
+                        ('Policy No', card.policyNo.trim()),
+                      if (card.insuranceExpiry != null)
+                        ('Valid Till', Fmt.date(card.insuranceExpiry!)),
+                    ],
+                  ),
+                ],
                 if (card.dents.isNotEmpty) ...[
                   const SizedBox(height: Gap.lg),
                   _DentsSection(dents: card.dents),
@@ -224,6 +241,10 @@ class _BookingDetailsSheet extends ConsumerWidget {
                         style: AppType.money.c(p.accentInk)),
                   ],
                 ),
+                if (card.advance > 0 || card.payments.isNotEmpty) ...[
+                  const SizedBox(height: Gap.md),
+                  _Payments(card: card),
+                ],
 
                 const SizedBox(height: Gap.lg),
                 Container(
@@ -409,6 +430,89 @@ class _Section extends StatelessWidget {
   }
 }
 
+/// What has been paid against the card: the advance taken at the counter
+/// on its own line, then every payment with its mode and date.
+class _Payments extends StatelessWidget {
+  const _Payments({required this.card});
+
+  final WorkshopCard card;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    final via = card.advanceVia;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(Gap.lg),
+      decoration: BoxDecoration(
+        color: p.surfaceSunken,
+        borderRadius: R.all(R.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (card.advance > 0)
+            Text(
+              'Advance paid ${Fmt.money(card.advance)}'
+              '${via.isEmpty ? '' : ' via $via'}',
+              style: AppType.labelL.c(p.ink),
+            ),
+          if (card.payments.isNotEmpty) ...[
+            if (card.advance > 0) const SizedBox(height: Gap.sm),
+            Text('Payments', style: AppType.labelM.c(p.inkMuted)),
+            const SizedBox(height: Gap.xs),
+            for (final e in card.payments)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        [
+                          if (e.at != null) Fmt.date(e.at!),
+                          if (e.modeLabel.isNotEmpty) e.modeLabel,
+                          if (e.advance) 'Advance',
+                        ].join('  ·  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.bodyS.c(p.inkSoft),
+                      ),
+                    ),
+                    const SizedBox(width: Gap.sm),
+                    Text(Fmt.money(e.amount),
+                        style: AppType.moneyS.c(p.ink)),
+                  ],
+                ),
+              ),
+          ],
+          if (card.items.isNotEmpty) ...[
+            Divider(height: Gap.lg, color: p.line),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Balance', style: AppType.labelL.c(p.ink)),
+                ),
+                Text(Fmt.money(card.balance),
+                    style: AppType.moneyS.c(p.accentInk)),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The workshop's colour key, as printed on its intake sheet: scratch red,
+/// dent yellow, broken green, rust blue. Fixed rather than taken from the
+/// palette so it matches the console and the paper copy in either theme.
+Color _dentColor(String severity) => switch (severity) {
+      'dent' => const Color(0xFFF2C744),
+      'crack' => const Color(0xFF30A46C),
+      'rust' => const Color(0xFF3E7BFA),
+      _ => const Color(0xFFE5484D),
+    };
+
 /// The damage sheet the counter filled in when the car came in, one mark a
 /// line: "Dent — Front bumper", with whatever they noted under it.
 ///
@@ -433,24 +537,72 @@ class _DentsSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: Gap.sm),
+        // The key, so a colour on the console's sheet means the same here.
+        Wrap(
+          spacing: Gap.md,
+          runSpacing: Gap.xs,
+          children: [
+            for (final (sev, label) in const [
+              ('scratch', 'Scratch'),
+              ('dent', 'Dent'),
+              ('crack', 'Broken'),
+              ('rust', 'Rust'),
+            ])
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _Dot(color: _dentColor(sev)),
+                  const SizedBox(width: 5),
+                  Text(label, style: AppType.bodyS.c(p.inkMuted)),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: Gap.sm),
         for (final d in dents)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  d.label.isEmpty
-                      ? d.severityLabel
-                      : '${d.severityLabel} — ${d.label}',
-                  style: AppType.labelL.c(p.ink),
+                Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: _Dot(color: _dentColor(d.severity)),
                 ),
-                if (d.note.trim().isNotEmpty)
-                  Text(d.note.trim(), style: AppType.bodyS.c(p.inkMuted)),
+                const SizedBox(width: Gap.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        d.label.isEmpty
+                            ? d.severityLabel
+                            : '${d.severityLabel} — ${d.label}',
+                        style: AppType.labelL.c(p.ink),
+                      ),
+                      if (d.note.trim().isNotEmpty)
+                        Text(d.note.trim(),
+                            style: AppType.bodyS.c(p.inkMuted)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
       ],
     );
   }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
 }

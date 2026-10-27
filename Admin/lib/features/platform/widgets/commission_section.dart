@@ -210,7 +210,7 @@ class _CommissionSectionState extends ConsumerState<CommissionSection> {
       // keeps its fields mounted through the exit animation, and disposing
       // them here first is the `_dependents.isEmpty` red screen.
       disposing: [amount, note],
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -298,9 +298,9 @@ class _CommissionSectionState extends ConsumerState<CommissionSection> {
                 const SizedBox(height: Gap.md),
               ],
               if (g == null)
-                const SizedBox(
-                  height: 320,
-                  child: GEmptyState(
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 320),
+                  child: const GEmptyState(
                     icon: Icons.handshake_outlined,
                     title: 'No partners yet',
                     message: 'Once a workshop registers and closes its first '
@@ -438,8 +438,8 @@ class _OwnCommissionViewState extends ConsumerState<OwnCommissionView> {
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h3),
         children: [
           if (!_ok)
-            SizedBox(
-              height: 320,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 320),
               child: GEmptyState(
                 icon: Icons.cloud_off_rounded,
                 title: 'Could not load the commission'.tr,
@@ -447,8 +447,8 @@ class _OwnCommissionViewState extends ConsumerState<OwnCommissionView> {
               ),
             )
           else if (mine == null)
-            SizedBox(
-              height: 320,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 320),
               child: GEmptyState(
                 icon: Icons.lock_outline_rounded,
                 title: 'Only the owner can see this'.tr,
@@ -693,7 +693,9 @@ class _PartnerRow extends StatelessWidget {
             style: AppType.labelS.c(p.inkMuted),
           ),
           const SizedBox(height: Gap.md),
-          Row(
+          Wrap(
+            spacing: Gap.xs,
+            runSpacing: Gap.xs,
             children: [
               _Chip(
                 label: g.customRate == null
@@ -703,7 +705,6 @@ class _PartnerRow extends StatelessWidget {
                 enabled: !busy,
                 onTap: onRate,
               ),
-              const SizedBox(width: Gap.xs),
               if (onSettle != null)
                 _Chip(
                   label: 'Mark settled',
@@ -752,7 +753,14 @@ class _Chip extends StatelessWidget {
           children: [
             Icon(icon, size: 13, color: p.inkMuted),
             const SizedBox(width: 4),
-            Text(label, style: AppType.labelS.c(p.inkMuted)),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.labelS.c(p.inkMuted),
+              ),
+            ),
           ],
         ),
       ),
@@ -819,7 +827,8 @@ class _LineRow extends StatelessWidget {
               line.status != 'settled' &&
               line.status != 'waived') ...[
             const SizedBox(height: Gap.md),
-            Row(
+            Wrap(
+              runSpacing: Gap.xs,
               children: [
                 for (final next in const ['invoiced', 'settled', 'waived'])
                   if (next != line.status)

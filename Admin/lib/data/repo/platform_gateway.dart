@@ -383,7 +383,11 @@ class PlatformGateway {
 
   /// Whether the signed-in account runs the register. Drives whether the
   /// console shows the platform section at all.
-  Future<bool> amPlatformAdmin() async {
+  Future<bool> amPlatformAdmin() async => await checkPlatformAdmin() ?? false;
+
+  /// [amPlatformAdmin], but null when the question could not be asked, so
+  /// a dropped connection is not mistaken for "not a head".
+  Future<bool?> checkPlatformAdmin() async {
     final client = _client;
     if (client == null) return false;
     try {
@@ -391,7 +395,7 @@ class PlatformGateway {
       return res == true;
     } catch (e) {
       debugPrint('is_platform_admin failed: $e');
-      return false;
+      return null;
     }
   }
 
@@ -435,6 +439,26 @@ class PlatformGateway {
     } catch (e) {
       debugPrint('set_platform_head failed: $e');
       return 'Could not save that. Try again in a moment.';
+    }
+  }
+
+  /// Adds [email] as a partner head, switched on (33_add_partner_head.sql).
+  /// Returns an error sentence, or null. A bad address, one already on the
+  /// list, and a caller who is not a head come back in words fit to show.
+  Future<String?> addHead(String email) async {
+    final client = _client;
+    if (client == null) return 'No connection to the backend.';
+    try {
+      await client.rpc('add_platform_head', params: {'head_email': email});
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('add_platform_head failed: $e');
+      return const {'22023', '23505', '42501'}.contains(e.code)
+          ? e.message
+          : 'Could not add that head. Try again in a moment.';
+    } catch (e) {
+      debugPrint('add_platform_head failed: $e');
+      return 'Could not add that head. Try again in a moment.';
     }
   }
 

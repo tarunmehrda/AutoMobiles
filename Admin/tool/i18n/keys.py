@@ -33,8 +33,9 @@ def scan(lib):
                     continue
                 # `.tr` and `.trf` both consume the literal as a key. A plain
                 # `\b` after "tr" does not fire before the "f", so both
-                # spellings have to be named.
-                if re.match(r"\.trf?(?![A-Za-z0-9_])", src[lit.end:lit.end + 5]):
+                # spellings have to be named. The formatter moves a long
+                # literal's `.tr` onto the next line, hence the whitespace.
+                if re.match(r"\s*\.trf?(?![A-Za-z0-9_])", src[lit.end:lit.end + 80]):
                     keys.add(lit.text)
 
             # Tr.plural(count, 'one', 'many'[, [...]]) — both arms are keys.

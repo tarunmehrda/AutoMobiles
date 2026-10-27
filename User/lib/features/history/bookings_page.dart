@@ -89,9 +89,18 @@ class _BookingsPageState extends ConsumerState<BookingsPage>
                   unselectedLabelColor: p.inkMuted,
                   labelStyle: AppType.labelL,
                   unselectedLabelStyle: AppType.labelL,
+                  // Shrunk to fit, so "Jobcard History" is not clipped to
+                  // "Jobcard Histo" at a large font.
                   tabs: const [
-                    Tab(text: 'My Bookings'),
-                    Tab(text: 'Jobcard History'),
+                    Tab(
+                      child: FittedBox(
+                          fit: BoxFit.scaleDown, child: Text('My Bookings')),
+                    ),
+                    Tab(
+                      child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('Jobcard History')),
+                    ),
                   ],
                 ),
               ),
@@ -678,7 +687,7 @@ class _JobcardCard extends ConsumerWidget {
               const SizedBox(width: Gap.sm),
               Expanded(
                 child: Text(
-                  '${card.vehicleTitle}  •  ${Fmt.plate(card.regNo)}',
+                  card.vehicleLine,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppType.bodyS.c(p.inkMuted),
@@ -702,6 +711,40 @@ class _JobcardCard extends ConsumerWidget {
               ),
             ],
           ),
+          if (card.promisedAt != null && !card.isClosed)
+            Row(
+              children: [
+                Icon(Icons.schedule_rounded,
+                    size: 15, color: overdue ? p.danger : p.inkMuted),
+                const SizedBox(width: Gap.sm),
+                Expanded(
+                  child: Text(
+                    'Expected delivery ${Fmt.fullDateTime(card.promisedAt!)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.bodyS.c(overdue ? p.danger : p.inkMuted),
+                  ),
+                ),
+              ],
+            ),
+          if (card.advance > 0)
+            Row(
+              children: [
+                Icon(Icons.payments_rounded, size: 15, color: p.inkMuted),
+                const SizedBox(width: Gap.sm),
+                Expanded(
+                  child: Text(
+                    [
+                      'Advance paid ${Fmt.money(card.advance)}',
+                      card.advanceVia,
+                    ].where((s) => s.isNotEmpty).join(' via '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.bodyS.c(p.inkMuted),
+                  ),
+                ),
+              ],
+            ),
           const SizedBox(height: Gap.md),
           Row(
             children: [
@@ -780,14 +823,19 @@ class _Box extends StatelessWidget {
                     Icon(icons[i], size: 13, color: p.accent),
                     const SizedBox(width: 5),
                   ],
+                  // Shrunk to fit rather than cut: "28 Sep ..." hid the
+                  // year, and an estimate is no use with digits missing.
                   Expanded(
-                    child: Text(
-                      lines[i],
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: i == 0
-                          ? AppType.labelL.c(tint ?? p.ink)
-                          : AppType.bodyS.c(p.inkMuted),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        lines[i],
+                        maxLines: 1,
+                        style: i == 0
+                            ? AppType.labelL.c(tint ?? p.ink)
+                            : AppType.bodyS.c(p.inkMuted),
+                      ),
                     ),
                   ),
                 ],

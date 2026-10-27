@@ -108,18 +108,52 @@ void main() {
       expect(offered, contains(DocSection.voices));
     });
 
-    test('the detailed template starts with everything it can carry on', () {
+    test('the detailed template starts with everything but the intake '
+        'story on', () {
       final on = DocSectionX.defaultsFor(
         InvoiceFormat.detailedA4,
         DocKind.invoice,
       );
       expect(
         on,
-        DocSectionX.offeredOn(
-          InvoiceFormat.detailedA4,
-          DocKind.invoice,
-        ).toSet(),
+        DocSectionX.offeredOn(InvoiceFormat.detailedA4, DocKind.invoice)
+            .toSet()
+            .difference(const {
+              DocSection.voices,
+              DocSection.accessories,
+              DocSection.dents,
+            }),
       );
+    });
+
+    test('no bill starts with the voice, accessories or damage marks', () {
+      // The client's rule: an invoice or estimate is a bill, not the intake
+      // sheet. Each is still one switch away on the share sheet.
+      for (final kind in const [DocKind.invoice, DocKind.estimate]) {
+        for (final format in InvoiceFormat.values) {
+          final on = DocSectionX.defaultsFor(format, kind);
+          expect(on, isNot(contains(DocSection.voices)));
+          expect(on, isNot(contains(DocSection.accessories)));
+          expect(on, isNot(contains(DocSection.dents)));
+        }
+      }
+    });
+
+    test('the job card copy carries the intake story; the mechanic copy '
+        'does not', () {
+      final mechanic = DocSectionX.defaultsFor(
+        InvoiceFormat.simpleA4,
+        DocKind.mechanicCopy,
+      );
+      final customer = DocSectionX.defaultsFor(
+        InvoiceFormat.simpleA4,
+        DocKind.mechanicCopy,
+        jobCardCopy: true,
+      );
+      expect(mechanic, contains(DocSection.voices));
+      expect(mechanic, isNot(contains(DocSection.accessories)));
+      expect(customer, contains(DocSection.accessories));
+      expect(customer, contains(DocSection.dents));
     });
 
     test('every A4 invoice starts with handover photographs ticked', () {

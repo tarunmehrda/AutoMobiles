@@ -295,7 +295,7 @@ class SettingsOptionsPage extends ConsumerWidget {
     GFeedback.sheet<void>(
       context,
       title: 'Theme'.tr,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -330,7 +330,7 @@ class SettingsOptionsPage extends ConsumerWidget {
       context,
       title: 'Default GST'.tr,
       subtitle: 'Applied to new job cards. Existing cards keep their rate.'.tr,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -358,7 +358,7 @@ class SettingsOptionsPage extends ConsumerWidget {
       context,
       title: 'Reminder spacing'.tr,
       subtitle: 'Three messages go out: before, on, and after the due date.'.tr,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -37,6 +37,8 @@ class InvoicePdf {
     final money = BillBlock.of(card);
     final doc = pw.Document(title: '${money.title} ${card.number}');
     final head = Letterhead.of(card, shop);
+    final party =
+        BillParty.of(card, name: customerName, phone: customerPhone);
     final shopName = head.name;
 
     doc.addPage(
@@ -94,16 +96,12 @@ class InvoicePdf {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Expanded(
-                  child: _block('Bill To:', [
-                    customerName,
-                    if (customerPhone.isNotEmpty) 'Mobile No: $customerPhone',
-                  ]),
+                  child: _block('Bill To:', party.billTo),
                 ),
                 pw.SizedBox(width: 6),
                 pw.Expanded(
                   child: _block('Vehicle Details:', [
-                    'Vehicle Number: ${Fmt.plate(card.regNo)}',
-                    'Model: ${card.vehicleTitle}',
+                    card.vehicleLine,
                     if (card.odometerKm > 0)
                       'KM Reading: ${Fmt.km(card.odometerKm)}',
                   ]),
@@ -118,6 +116,10 @@ class InvoicePdf {
                 ),
               ],
             ),
+            if (party.insurance.isNotEmpty) ...[
+              pw.SizedBox(height: 6),
+              _block('Insurance Details:', party.insurance),
+            ],
             pw.SizedBox(height: 14),
 
             // --- the lines --------------------------------------------
@@ -126,9 +128,10 @@ class InvoicePdf {
               columnWidths: const {
                 0: pw.FixedColumnWidth(24),
                 1: pw.FlexColumnWidth(4),
-                2: pw.FixedColumnWidth(40),
-                3: pw.FixedColumnWidth(70),
-                4: pw.FixedColumnWidth(76),
+                2: pw.FixedColumnWidth(38),
+                3: pw.FixedColumnWidth(48),
+                4: pw.FixedColumnWidth(66),
+                5: pw.FixedColumnWidth(76),
               },
               children: [
                 pw.TableRow(
@@ -136,28 +139,30 @@ class InvoicePdf {
                   children: [
                     _head('#'),
                     _head('Particulars'),
+                    _head('GST', align: pw.TextAlign.center),
                     _head('Qty', align: pw.TextAlign.center),
-                    _head('Unit Price', align: pw.TextAlign.right),
-                    _head('Total Amount', align: pw.TextAlign.right),
+                    _head('Rate', align: pw.TextAlign.right),
+                    _head('Amount', align: pw.TextAlign.right),
                   ],
                 ),
                 for (var i = 0; i < card.items.length; i++)
                   pw.TableRow(children: [
                     _cell('${i + 1}'),
                     _cell(card.items[i].name),
-                    _cell(Fmt.number(card.items[i].qty),
+                    _cell(BillBlock.gstOf(card, card.items[i]),
+                        align: pw.TextAlign.center),
+                    _cell(card.items[i].qtyLabel,
                         align: pw.TextAlign.center),
                     _cell(Fmt.money(card.items[i].rate),
                         align: pw.TextAlign.right),
-                    _cell(
-                        Fmt.money(card.items[i].qty * card.items[i].rate),
-                        align: pw.TextAlign.right,
-                        bold: true),
+                    _cell(Fmt.money(card.items[i].amount),
+                        align: pw.TextAlign.right, bold: true),
                   ]),
                 if (card.items.isEmpty)
                   pw.TableRow(children: [
                     _cell(''),
                     _cell('Nothing billed on this card.'),
+                    _cell(''),
                     _cell(''),
                     _cell(''),
                     _cell(''),
@@ -206,6 +211,13 @@ class InvoicePdf {
                 ),
               ],
             ),
+
+            if (card.bank != null && card.bank!.rows.isNotEmpty) ...[
+              pw.SizedBox(height: 12),
+              _block('Bank Details:', [
+                for (final (label, value) in card.bank!.rows) '$label: $value',
+              ]),
+            ],
 
             pw.SizedBox(height: 22),
             pw.Align(

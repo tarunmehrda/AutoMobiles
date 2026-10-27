@@ -3,12 +3,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/app_config.dart';
 import '../core/i18n/app_language.dart';
+import '../data/models/access.dart';
 import '../data/models/attendance.dart';
 import '../data/models/entities.dart';
 import '../data/models/enums.dart';
 import '../data/repo/admin_data.dart';
+import '../data/repo/garage_gateway.dart';
 import '../data/repo/push_service.dart';
 import 'admin_state.dart';
+
+/// What the signed-in person may do at this workshop. See [Access].
+final accessProvider = Provider<Access>((ref) {
+  final notifier = ref.watch(garageGatewayProvider).access;
+  void changed() => ref.invalidateSelf();
+  notifier.addListener(changed);
+  ref.onDispose(() => notifier.removeListener(changed));
+  return notifier.value;
+});
 
 /// The whole snapshot, for screens that need to cross-reference several
 /// collections at once rather than watch one slice.

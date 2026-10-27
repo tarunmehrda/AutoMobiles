@@ -39,6 +39,9 @@ Future<bool> showMasterActions(
 }) async {
   final deleted = await showModalBottomSheet<bool>(
     context: context,
+    // Sized to its content rather than capped at 9/16 of the screen, which
+    // a large font on a small phone runs past.
+    isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (sheetContext) {
       final p = sheetContext.c;
@@ -51,7 +54,7 @@ Future<bool> showMasterActions(
         ),
         child: SafeArea(
           top: false,
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(
               Gap.page,
               Gap.md,

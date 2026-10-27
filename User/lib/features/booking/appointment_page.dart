@@ -436,8 +436,11 @@ class _AppointmentPageState extends ConsumerState<AppointmentPage> {
     final p = context.c;
     final services = _shop?.services ?? const <WorkshopService>[];
     if (services.isEmpty) {
+      // Scrolls when it has to: on a short phone at a large font the three
+      // lines under the icon are taller than the page between the stepper
+      // and the buttons.
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(Gap.page),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -609,19 +612,26 @@ class _AppointmentPageState extends ConsumerState<AppointmentPage> {
                       color: _hour == s.hour ? p.accent : p.surfaceSunken,
                       borderRadius: R.all(R.sm),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.access_time_rounded,
-                            size: 14,
-                            color: _hour == s.hour ? p.onAccent : p.inkMuted),
-                        const SizedBox(width: 5),
-                        Text(
-                          s.label,
-                          style: AppType.labelM
-                              .c(_hour == s.hour ? p.onAccent : p.inkSoft),
-                        ),
-                      ],
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    // A third of a narrow phone is not wide enough for the
+                    // clock and "10:00 AM" at a large font; shrink to fit.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.access_time_rounded,
+                              size: 14,
+                              color:
+                                  _hour == s.hour ? p.onAccent : p.inkMuted),
+                          const SizedBox(width: 5),
+                          Text(
+                            s.label,
+                            style: AppType.labelM
+                                .c(_hour == s.hour ? p.onAccent : p.inkSoft),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -822,9 +832,11 @@ class _PickRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Two lines: beside a six-figure price one line left
+                  // "Compre..." of a service name.
                   Text(
                     title,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.labelL.c(selected ? p.accentInk : p.ink),
                   ),

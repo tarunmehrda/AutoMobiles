@@ -58,13 +58,20 @@ final _panels = <_Panel>[
 /// The row of everything attached to a job card, with a count so the counter
 /// can see what has been filled in without opening each one.
 class PanelStrip extends StatelessWidget {
-  const PanelStrip({super.key, required this.card});
+  const PanelStrip({super.key, required this.card, this.showItems = true});
 
   final JobCard card;
+
+  /// False for somebody who may not see prices: the items are the bill.
+  final bool showItems;
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
+    final panels = [
+      for (final panel in _panels)
+        if (showItems || panel.path != 'items') panel,
+    ];
     return Container(
       decoration: BoxDecoration(
         color: p.surface,
@@ -73,18 +80,19 @@ class PanelStrip extends StatelessWidget {
       child: SizedBox(
         // Icon (42) + gap (5) + a two-line label, plus the 8 of padding
         // above and below. 'Customer voice' wraps, so the two lines are
-        // what the strip has to be tall enough for.
-        height: 88,
+        // what the strip has to be tall enough for — and those two lines
+        // grow with the phone's font size, so the 26 for them does too.
+        height: 62 + MediaQuery.textScalerOf(context).scale(26),
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(
             horizontal: Gap.page,
             vertical: Gap.sm,
           ),
-          itemCount: _panels.length,
+          itemCount: panels.length,
           separatorBuilder: (_, _) => const SizedBox(width: Gap.lg),
           itemBuilder: (context, i) {
-            final panel = _panels[i];
+            final panel = panels[i];
             final count = panel.countOf(card);
             return _PanelButton(
               label: panel.label,

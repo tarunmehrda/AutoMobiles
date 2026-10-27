@@ -259,25 +259,52 @@ class ReportFooter extends StatelessWidget {
         // sitting over the clock.
         child: Row(
           children: [
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(leftLabel, style: AppType.bodyS.c(p.inkMuted)),
-                Text(leftValue, style: AppType.money.c(p.accentInk)),
-              ],
+            // Both sides shrink a long figure to fit rather than pushing
+            // the other off the edge.
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    leftLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.bodyS.c(p.inkMuted),
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      leftValue,
+                      style: AppType.money.c(p.accentInk),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const Spacer(),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  rightLabel.toUpperCase(),
-                  style: AppType.over.s(9.5).c(p.inkMuted),
-                ),
-                Text(rightValue, style: AppType.moneyL.s(20).c(p.accentInk)),
-              ],
+            const SizedBox(width: Gap.md),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    rightLabel.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.over.s(9.5).c(p.inkMuted),
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      rightValue,
+                      style: AppType.moneyL.s(20).c(p.accentInk),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -19,6 +19,7 @@ import '../../data/models/enums.dart';
 import '../../state/admin_state.dart';
 import '../../state/providers.dart';
 import 'documents/doc_sections.dart';
+import 'documents/doc_text.dart';
 import 'documents/invoice_format.dart';
 import 'documents/job_document.dart';
 import 'widgets/close_sheet.dart';
@@ -47,7 +48,11 @@ class JobCardDetailPage extends ConsumerStatefulWidget {
 }
 
 class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
-  late DocKind _doc = widget.initialDoc;
+  /// Somebody who may not see prices gets the mechanic copy and nothing
+  /// else: the estimate and the invoice are the money.
+  late DocKind _doc = ref.read(accessProvider).seesCost
+      ? widget.initialDoc
+      : DocKind.mechanicCopy;
   final _captureKey = GlobalKey();
 
   /// Which of the five templates this card is being read and sent on, and
@@ -57,15 +62,24 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
   /// redraws as it is picked — the counter chooses a template by looking at
   /// one, not by reading its name off a chip and finding out at the printer.
   late InvoiceFormat _format = ShareSheet.lastFormat;
-  late Set<DocSection> _sections = DocSectionX.defaultsFor(
-    _format,
-    widget.initialDoc,
-  );
+  late Set<DocSection> _sections = DocSectionX.defaultsFor(_format, _doc);
+
+  /// Which of the two floor copies is up: the mechanic's, or the job card
+  /// copy the customer takes away at check-in. One [DocKind] covers both —
+  /// the paper is the same, unpriced — and this picks the flavour.
+  bool _jobCardCopy = false;
+
+  bool get _isJobCardCopy => _jobCardCopy && _doc == DocKind.mechanicCopy;
 
   void _setTemplate(InvoiceFormat format, Set<DocSection> sections) {
     setState(() {
+      // Picking a new template hands back that template's defaults, worked
+      // out without knowing which floor copy this is; the customer's copy
+      // starts with its own (accessories, damage) instead.
+      _sections = format != _format && _isJobCardCopy
+          ? DocSectionX.defaultsFor(format, _doc, jobCardCopy: true)
+          : sections;
       _format = format;
-      _sections = sections;
       ShareSheet.lastFormat = format;
     });
   }
@@ -75,14 +89,65 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
   /// the tab changes rather than carried across and silently dropped.
   void _setDoc(DocKind doc) => setState(() {
     _doc = doc;
-    _sections = DocSectionX.defaultsFor(_format, doc);
+    _sections = DocSectionX.defaultsFor(
+      _format,
+      doc,
+      jobCardCopy: _isJobCardCopy,
+    );
   });
+
+  void _setCopy(bool jobCardCopy) => setState(() {
+    _jobCardCopy = jobCardCopy;
+    _sections = DocSectionX.defaultsFor(
+      _format,
+      _doc,
+      jobCardCopy: _isJobCardCopy,
+    );
+  });
+
+  /// The floor copy's way to the items panel: spares or jobs, straight onto
+  /// the right tab, so the list beside the complaint can be filled in from
+  /// the copy that shows it.
+  void _addItems(BuildContext context, String id) {
+    GFeedback.sheet<void>(
+      context,
+      title: 'Add items'.tr,
+      subtitle: 'Spares / Jobs'.tr,
+      child: Builder(
+        builder: (sheet) => SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(
+            Gap.page,
+            Gap.lg,
+            Gap.page,
+            Gap.h1,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final kind in const [LineKind.spare, LineKind.job])
+                GOptionRow(
+                  label: kind.label,
+                  icon: kind.icon,
+                  selected: false,
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    context.push('/job/$id/items?kind=${kind.name}');
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
     final card = ref.watch(jobCardProvider(widget.id));
     final garage = ref.watch(garageProvider);
+    final access = ref.watch(accessProvider);
+    final money = access.handlesMoney;
 
     if (card == null || garage == null) {
       return Scaffold(
@@ -103,13 +168,21 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
     final customer = ref.watch(customerProvider(card.customerId));
     final vehicle = ref.watch(vehicleProvider(card.vehicleId));
     final staff = ref.watch(staffProvider);
+    // Primary first: the accounts marked to print go at the foot of the
+    // bill, and one marked for a UPI QR is what the code on it pays into.
+    final banks = ref.watch(adminProvider.select((d) => d.banks));
+    final title = docTitle(_doc, _format, jobCardCopy: _isJobCardCopy);
 
     // An open card should default to the estimate; once it is billed, the
     // invoice is what the counter reaches for.
     return Scaffold(
       backgroundColor: p.canvas,
+      // Every field this page opens is in a sheet that lifts itself over the
+      // keyboard. Resizing the page underneath as well only squeezed the
+      // header and panel strip into an overflow behind the sheet.
+      resizeToAvoidBottomInset: false,
       appBar: GHeader(
-        title: _doc.label,
+        title: _doc == DocKind.mechanicCopy ? title : _doc.label,
         subtitle: '${card.number} • ${card.status.label}',
         actions: [
           // One tap to the PDF, rather than two through the share sheet:
@@ -128,22 +201,25 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
               customer: customer,
               vehicle: vehicle,
               staff: staff,
+              jobCardCopy: _isJobCardCopy,
+              banks: banks,
             ),
           ),
-          GIconButton(
-            icon: Icons.more_horiz_rounded,
-            size: 40,
-            onTap: () => _menu(context, card.id),
-          ),
+          if (money || access.deleteJobs)
+            GIconButton(
+              icon: Icons.more_horiz_rounded,
+              size: 40,
+              onTap: () => _menu(context, card.id),
+            ),
         ],
       ),
       body: Column(
         children: [
           VehicleHeader(
             card: card,
-            onEdit: () => context.push('/job/${card.id}/items'),
+            onEdit: money ? () => context.push('/job/${card.id}/items') : null,
           ),
-          PanelStrip(card: card),
+          if (access.editJobs) PanelStrip(card: card, showItems: money),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(
@@ -153,24 +229,38 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
                 Gap.xxl,
               ),
               children: [
-                if (card.items.isNotEmpty && !card.settled)
+                if (access.seesCost && card.items.isNotEmpty && !card.settled)
                   _BalanceBanner(amount: card.balance),
                 // The other way round: more taken than billed. A settled
                 // card says nothing on its own, so the money owed back
                 // would otherwise be invisible here.
-                if (card.excess > 0)
+                if (access.seesCost && card.excess > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: Gap.lg),
                     child: ExcessNote(amount: card.excess),
                   ),
 
-                GSegmented<DocKind>(
-                  options: DocKind.values,
-                  selected: _doc,
-                  onSelect: _setDoc,
-                  labelOf: (d) => d.label,
-                ),
-                const SizedBox(height: Gap.md),
+                if (access.seesCost) ...[
+                  GSegmented<DocKind>(
+                    options: DocKind.values,
+                    selected: _doc,
+                    onSelect: _setDoc,
+                    labelOf: (d) => d.label,
+                  ),
+                  const SizedBox(height: Gap.md),
+                ],
+
+                if (_doc == DocKind.mechanicCopy) ...[
+                  GSegmented<bool>(
+                    options: const [false, true],
+                    selected: _jobCardCopy,
+                    onSelect: _setCopy,
+                    labelOf: (copy) =>
+                        copy ? 'Job Card Copy'.tr : 'Mechanic Copy'.tr,
+                    height: 40,
+                  ),
+                  const SizedBox(height: Gap.md),
+                ],
 
                 TemplatePicker(
                   kind: _doc,
@@ -195,17 +285,33 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
                     staff: staff,
                     format: _format,
                     sections: _sections,
+                    jobCardCopy: _isJobCardCopy,
+                    banks: banks,
                   ),
                 ),
 
-                if (card.items.isEmpty) ...[
+                // Outside the captured boundary on purpose: a button is not
+                // something to send the customer a picture of.
+                if (_doc == DocKind.mechanicCopy &&
+                    money &&
+                    !card.isClosed) ...[
+                  const SizedBox(height: Gap.md),
+                  GButton(
+                    label: 'Add Items (Spares / Jobs)'.tr,
+                    kind: GButtonKind.outline,
+                    icon: Icons.add_rounded,
+                    onPressed: () => _addItems(context, card.id),
+                  ),
+                ],
+
+                if (money && card.items.isEmpty) ...[
                   const SizedBox(height: Gap.lg),
                   _EmptyBillPrompt(
                     onAdd: () => context.push('/job/${card.id}/items'),
                   ),
                 ],
 
-                if (card.items.isNotEmpty) ...[
+                if (access.seesCost && card.items.isNotEmpty) ...[
                   const SizedBox(height: Gap.lg),
                   LedgerTabs(card: card, garage: garage),
                 ],
@@ -232,6 +338,8 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
                   customer: customer,
                   vehicle: vehicle,
                   staff: staff,
+                  jobCardCopy: _isJobCardCopy,
+                  banks: banks,
                   captureKey: _captureKey,
                   format: _format,
                   sections: _sections,
@@ -249,7 +357,9 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
     );
   }
 
-  void _showInvoice() => setState(() => _doc = DocKind.invoice);
+  /// After completing, the bill — with the bill's own blocks, not whatever
+  /// the mechanic copy had ticked (that carried the customer voice onto it).
+  void _showInvoice() => _setDoc(DocKind.invoice);
 
   void _menu(BuildContext context, String id) {
     final card = ref.read(jobCardProvider(id));
@@ -258,22 +368,23 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
       context,
       title: 'Job card {0}'.trf([card.number]),
       subtitle: 'Opened {0}'.trf([Fmt.fullDateTime(card.createdAt)]),
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            GOptionRow(
-              label: 'Edit items'.tr,
-              subtitle: 'Jobs, spares and lubes'.tr,
-              icon: Icons.edit_note_rounded,
-              selected: false,
-              onTap: () {
-                Navigator.of(context).pop();
-                context.push('/job/$id/items');
-              },
-            ),
-            if (!card.isOpen)
+            if (ref.read(accessProvider).handlesMoney)
+              GOptionRow(
+                label: 'Edit items'.tr,
+                subtitle: 'Jobs and spares'.tr,
+                icon: Icons.edit_note_rounded,
+                selected: false,
+                onTap: () {
+                  Navigator.of(context).pop();
+                  context.push('/job/$id/items');
+                },
+              ),
+            if (!card.isOpen && ref.read(accessProvider).handlesMoney)
               GOptionRow(
                 label: 'Reopen on the floor'.tr,
                 subtitle:
@@ -286,28 +397,29 @@ class _JobCardDetailPageState extends ConsumerState<JobCardDetailPage> {
                   GFeedback.info(context, 'Back on the floor.'.tr);
                 },
               ),
-            GOptionRow(
-              label: 'Delete job card'.tr,
-              subtitle: 'Parts go back to stock. This cannot be undone.'.tr,
-              icon: Icons.delete_outline_rounded,
-              selected: false,
-              onTap: () async {
-                Navigator.of(context).pop();
-                final ok = await GFeedback.confirm(
-                  context,
-                  title: 'Delete {0}?'.trf([card.number]),
-                  message:
-                      'The card, its bill and its message trail go for good. Any parts on it return to stock.'
-                          .tr,
-                  confirmLabel: 'Delete'.tr,
-                  destructive: true,
-                  icon: Icons.delete_outline_rounded,
-                );
-                if (!ok || !context.mounted) return;
-                ref.read(adminProvider.notifier).deleteJobCard(id);
-                if (context.mounted) context.pop();
-              },
-            ),
+            if (ref.read(accessProvider).deleteJobs)
+              GOptionRow(
+                label: 'Delete job card'.tr,
+                subtitle: 'Parts go back to stock. This cannot be undone.'.tr,
+                icon: Icons.delete_outline_rounded,
+                selected: false,
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  final ok = await GFeedback.confirm(
+                    context,
+                    title: 'Delete {0}?'.trf([card.number]),
+                    message:
+                        'The card, its bill and its message trail go for good. Any parts on it return to stock.'
+                            .tr,
+                    confirmLabel: 'Delete'.tr,
+                    destructive: true,
+                    icon: Icons.delete_outline_rounded,
+                  );
+                  if (!ok || !context.mounted) return;
+                  ref.read(adminProvider.notifier).deleteJobCard(id);
+                  if (context.mounted) context.pop();
+                },
+              ),
           ],
         ),
       ),
@@ -327,7 +439,9 @@ class _PrimaryAction extends ConsumerWidget {
     final card = ref.watch(jobCardProvider(id));
     if (card == null) return const SizedBox.shrink();
 
-    if (card.isClosed) {
+    // Completing takes the advance and the discount; closing takes the
+    // money. Neither is for somebody who may not see what the card costs.
+    if (card.isClosed || !ref.watch(accessProvider).handlesMoney) {
       return GButton(
         label: 'Done'.tr,
         kind: GButtonKind.primary,

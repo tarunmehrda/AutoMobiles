@@ -7,6 +7,7 @@ import 'package:garagepro/data/models/enums.dart';
 import 'package:garagepro/data/repo/app_data.dart';
 import 'package:garagepro/data/repo/local_store.dart';
 import 'package:garagepro/data/models/workshop.dart';
+import 'package:garagepro/features/invoice/invoice_money.dart';
 import 'package:garagepro/data/repo/supabase_gateway.dart';
 import 'package:garagepro/data/seed/catalog_seed.dart';
 import 'package:garagepro/data/seed/media.dart';
@@ -572,6 +573,97 @@ void main() {
       expect(back.items.length, 2);
       expect(back.voices, ['Brake noise']);
       expect(back.openedAt, card.openedAt);
+    });
+
+    test('a row from before 35_jobcard_intake.sql parses to blanks', () {
+      final card = WorkshopCard.fromJson(row());
+      expect(card.payments, isEmpty);
+      expect(card.advance, 0);
+      expect(card.vehicleYear, isNull);
+      expect(card.hasInsurance, isFalse);
+      expect(card.bank, isNull);
+      expect(card.billName, '');
+      expect(card.vehicleLine, 'Hyundai Creta SX · PB65AB1234');
+      // No line rate: every line bills at the card's 18%.
+      expect(card.items.first.gstRate, isNull);
+      expect(card.gstPercentOf(card.items.first), 18);
+    });
+
+    test('advance is only the advance, paid is the rest', () {
+      final card = WorkshopCard.fromJson({
+        ...row(),
+        'vehicle_year': 2015,
+        'advance': null,
+        'payment_list': [
+          {'id': 'adv-1', 'amount': '200.00', 'mode': 'upi',
+           'at': '2026-09-14T09:31:00+00:00', 'advance': true},
+          {'id': 'p2', 'amount': '300.00', 'mode': 'netbanking',
+           'at': '2026-09-15T17:00:00+00:00', 'advance': false},
+        ],
+        'bank': {'name': 'SBI', 'ifsc': 'SBIN0001234', 'branch': null},
+        'insurer': 'New India', 'policy_no': null,
+      });
+      // Summed from the flags when the column itself is missing.
+      expect(card.advance, 200);
+      expect(card.advanceVia, 'UPI');
+      expect(card.payments.last.modeLabel, 'Net Banking');
+      expect(card.paidAfterAdvance, 300);
+      expect(card.payable, 980);
+      expect(card.balance, 680);
+      expect(card.vehicleLine, '2015 Hyundai Creta SX · PB65AB1234');
+      expect(card.hasInsurance, isTrue);
+      expect(card.policyNo, '');
+      expect(card.bank!.rows.map((r) => r.$1), ['Bank', 'IFSC']);
+      // The invoice's totals: advance alone, then what is left of the bill.
+      final rows = {for (final r in BillBlock.of(card).rows) r.label: r.value};
+      expect(rows['Advance'], 200);
+      expect(rows['Payable'], 980);
+      expect(rows['Paid'], 300);
+      expect(rows['Balance'], 680);
+
+      final back = WorkshopCard.fromJson(card.toJson());
+      expect(back.advance, 200);
+      expect(back.payments, hasLength(2));
+      expect(back.bank!.ifsc, 'SBIN0001234');
+    });
+
+    test('each line is taxed at its own rate', () {
+      final card = WorkshopCard.fromJson({
+        ...row(),
+        'discount': 0,
+        'items': [
+          {'id': 'l1', 'kind': 'job', 'name': 'Labour', 'qty': 1,
+           'rate': '1000.00', 'gst_rate': '0.18'},
+          {'id': 'l2', 'kind': 'spare', 'name': 'Tyre', 'qty': 1,
+           'rate': '1000.00', 'gst_rate': 0.28, 'unit': 'pcs'},
+          {'id': 'l3', 'kind': 'spare', 'name': 'Exempt', 'qty': 1,
+           'rate': '100.00', 'gst_rate': 0},
+        ],
+      });
+      expect(card.items[1].gstRate, 28);
+      expect(card.items[1].qtyLabel, '1 pcs');
+      expect(card.gstPercentOf(card.items[2]), 0);
+      expect(card.tax, 180 + 280);
+      expect(card.total, 2560);
+      // The cache keeps the fraction, so it reads back the same way.
+      final back = WorkshopCard.fromJson(card.toJson());
+      expect(back.items[1].gstRate, 28);
+      expect(back.total, 2560);
+    });
+
+    test('damage marks read whatever label they carry', () {
+      final card = WorkshopCard.fromJson({
+        ...row(),
+        'dents': [
+          {'id': 'd1', 'view': 'under', 'label': 'Underbody',
+           'severity': 'crack', 'points': [], 'dx': 0.5, 'dy': 0.5},
+          {'id': 'd2', 'label': '', 'part': 'Bonnet', 'severity': null},
+        ],
+      });
+      expect(card.dents.first.label, 'Underbody');
+      expect(card.dents.first.severityLabel, 'Broken');
+      expect(card.dents.last.label, 'Bonnet');
+      expect(card.dents.last.severityLabel, 'Scratch');
     });
 
     test('a snapshot keeps the workshop cards it was given', () {

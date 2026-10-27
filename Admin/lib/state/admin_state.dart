@@ -10,7 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/i18n/app_language.dart';
 import '../core/i18n/strings.dart';
+import '../data/models/access.dart';
 import '../data/models/attendance.dart';
+import '../data/models/books.dart';
 import '../data/models/entities.dart';
 import '../data/models/enums.dart';
 import '../data/repo/admin_data.dart';
@@ -74,6 +76,8 @@ class AdminController extends StateNotifier<AdminData>
     : _attendance = attendance ?? AttendanceGateway.instance,
       super(_store.read()) {
     WidgetsBinding.instance.addObserver(this);
+    final saved = _store.access;
+    if (saved != null) _remote.access.value = Access.fromJson(saved);
   }
 
   final LocalStore _store;
@@ -199,9 +203,19 @@ class AdminController extends StateNotifier<AdminData>
     // signed in next, who then tried to upload it as their own.
     final synced = _remote.garageId != null || _confirmed(state.garage);
     unawaited(_remote.reset());
+    unawaited(_store.setAccess(null));
     final next = synced
         ? state.signedOut()
         : state.copyWith(signedIn: false, onboarded: true);
+    state = next;
+    _store.flush(next);
+  }
+
+  /// After the account is deleted upstream: everything goes, synced or not.
+  /// There is no workshop left to send an unsent card to.
+  void wipe() {
+    unawaited(_remote.reset());
+    final next = state.signedOut();
     state = next;
     _store.flush(next);
   }
@@ -228,7 +242,18 @@ class AdminController extends StateNotifier<AdminData>
     final lookup = await _remote.ensureGarage(state.garage);
     if (!lookup.reachable) return RestoreOutcome.unreachable;
     final garage = lookup.garage;
-    if (garage == null) return RestoreOutcome.noWorkshop;
+    if (garage == null) {
+      // What is on this phone is a workshop the server no longer gives this
+      // account: a staff login the owner removed, a deleted account signing
+      // in fresh, or another account's shop on a shared phone. Clear it, and
+      // they land on "Who are you?" to register or join.
+      if (!_remote.access.value.isOwner || _confirmed(state.garage)) {
+        _remote.access.value = Access.owner;
+        unawaited(_store.setAccess(null));
+        if (mounted) _setRemote(state.signedOut().copyWith(signedIn: true));
+      }
+      return RestoreOutcome.noWorkshop;
+    }
     // This account demonstrably has a workshop, so a lookup that fails on
     // some later sign-in is a fault to retry, not a new shop to register.
     unawaited(_store.markRegistered());
@@ -236,6 +261,15 @@ class AdminController extends StateNotifier<AdminData>
 
     final adopted = adoptWorkshop(state, garage);
     if (adopted != null) _setRemote(adopted);
+
+    // Before the download, which keeps or drops cards by it. A failed ask
+    // keeps whatever this phone last knew.
+    final access = await _remote.fetchAccess();
+    if (!mounted) return RestoreOutcome.restored;
+    if (access != null) {
+      _remote.access.value = access;
+      unawaited(_store.setAccess(access.toJson()));
+    }
 
     final remote = await _remote.hydrate(state);
     if (!mounted) return RestoreOutcome.restored;
@@ -672,8 +706,21 @@ class AdminController extends StateNotifier<AdminData>
   void setDefaultTaxRate(double rate) =>
       _set(state.copyWith(defaultTaxRate: rate.clamp(0, 0.5)));
 
-  Staff addStaff({required String name, String phone = '', String skill = ''}) {
-    final s = Staff(id: newId('st'), name: name, phone: phone, skill: skill);
+  Staff addStaff({
+    required String name,
+    String phone = '',
+    String skill = '',
+    String designation = '',
+    String remarks = '',
+  }) {
+    final s = Staff(
+      id: newId('st'),
+      name: name,
+      phone: phone,
+      skill: skill,
+      designation: designation,
+      remarks: remarks,
+    );
     _set(state.copyWith(staff: [...state.staff, s]));
     return s;
   }
@@ -1032,6 +1079,9 @@ class AdminController extends StateNotifier<AdminData>
     String insurer = '',
     String policyNo = '',
     DateTime? insuranceExpiry,
+    DateTime? insuranceFrom,
+    String insurerAddress = '',
+    String insurerGstin = '',
   }) {
     final existing = state.vehicleByReg(regNo);
     if (existing != null) {
@@ -1050,6 +1100,13 @@ class AdminController extends StateNotifier<AdminData>
         policyNo:
             policyNo.trim().isEmpty ? existing.policyNo : policyNo.trim(),
         insuranceExpiry: insuranceExpiry ?? existing.insuranceExpiry,
+        insuranceFrom: insuranceFrom ?? existing.insuranceFrom,
+        insurerAddress: insurerAddress.trim().isEmpty
+            ? existing.insurerAddress
+            : insurerAddress.trim(),
+        insurerGstin: insurerGstin.trim().isEmpty
+            ? existing.insurerGstin
+            : insurerGstin.trim().toUpperCase(),
       );
       _set(
         state.copyWith(
@@ -1076,6 +1133,9 @@ class AdminController extends StateNotifier<AdminData>
       insurer: insurer.trim(),
       policyNo: policyNo.trim(),
       insuranceExpiry: insuranceExpiry,
+      insuranceFrom: insuranceFrom,
+      insurerAddress: insurerAddress.trim(),
+      insurerGstin: insurerGstin.trim().toUpperCase(),
     );
     _set(state.copyWith(vehicles: [...state.vehicles, created]));
     return created;
@@ -1271,6 +1331,10 @@ class AdminController extends StateNotifier<AdminData>
     _set(
       state.copyWith(
         jobCards: state.jobCards.where((j) => j.id != id).toList(),
+        // And its money comes out of the day book. It used to stay, so the
+        // drawer (and Bank & Cash) went on counting payments for a card
+        // that no longer existed.
+        cashBook: state.cashBook.where((e) => e.jobCardId != id).toList(),
       ),
     );
   }
@@ -1421,6 +1485,8 @@ class AdminController extends StateNotifier<AdminData>
     double rate = 0,
     String? mechanicId,
     MasterItem? master,
+    double? gstRate,
+    String unit = '',
   }) {
     final card = _find(id);
     if (card == null || card.isClosed) return null;
@@ -1435,6 +1501,9 @@ class AdminController extends StateNotifier<AdminData>
           mechanicId ??
           (card.mechanicIds.isEmpty ? null : card.mechanicIds.first),
       masterId: master?.id,
+      gstRate: gstRate,
+      // A stocked part bills in the unit it is counted out in.
+      unit: unit.isNotEmpty ? unit : (master?.unit ?? ''),
     );
     _put(card.copyWith(items: [...card.items, line]));
     _moveStock(line.masterId, -line.qty);
@@ -1577,13 +1646,14 @@ class AdminController extends StateNotifier<AdminData>
     required PayMode mode,
     String note = '',
     bool advance = false,
+    String? accountId,
   }) {
     final card = _find(id);
     if (card == null || amount <= 0) return;
     final take = advance || amount <= card.balance ? amount : card.balance;
     if (take <= 0) return;
     final now = DateTime.now();
-    final paymentId = newId('p');
+    final paymentId = newId(advance ? 'adv' : 'p');
     _put(
       card.copyWith(
         payments: [
@@ -1614,6 +1684,7 @@ class AdminController extends StateNotifier<AdminData>
             reason: note.isEmpty ? 'Jobcard Payment' : note,
             mode: mode,
             jobCardId: card.id,
+            accountId: accountId,
           ),
         ],
       ),
@@ -1769,6 +1840,7 @@ class AdminController extends StateNotifier<AdminData>
     double paid = 0,
     String note = '',
     DateTime? at,
+    PayMode mode = PayMode.cash,
   }) {
     final when = at ?? DateTime.now();
     final e = Expense(
@@ -1780,15 +1852,18 @@ class AdminController extends StateNotifier<AdminData>
       supplier: supplier.trim(),
       paid: money(paid.clamp(0, amount)),
       note: note.trim(),
+      mode: mode,
     );
     _set(state.copyWith(expenses: [...state.expenses, e]));
-    // Money actually handed over is money out of the drawer.
+    // Money actually handed over is money out of the drawer — or out of the
+    // bank, when it went online.
     if (e.paid > 0) {
       addCash(
         party: e.supplier.isEmpty ? e.title : e.supplier,
         amount: e.paid,
         inward: false,
         reason: e.category,
+        mode: mode,
         at: when,
       );
     }
@@ -1819,15 +1894,18 @@ class AdminController extends StateNotifier<AdminData>
     String reason = '',
     PayMode mode = PayMode.cash,
     DateTime? at,
+    String? accountId,
+    String? id,
   }) {
     final e = CashEntry(
-      id: newId('cb'),
+      id: id ?? newId('cb'),
       party: party.trim(),
       amount: money(amount),
       at: at ?? DateTime.now(),
       inward: inward,
       reason: reason.trim(),
       mode: mode,
+      accountId: accountId,
     );
     _set(state.copyWith(cashBook: [...state.cashBook, e]));
     return e;
@@ -1990,6 +2068,407 @@ class AdminController extends StateNotifier<AdminData>
   void removePurchaseOrder(String id) => _set(
     state.copyWith(
       purchaseOrders: state.purchaseOrders.where((e) => e.id != id).toList(),
+    ),
+  );
+
+  // ---------------------------------------------------------------------
+  // Bank accounts and cash in hand
+  // ---------------------------------------------------------------------
+
+  /// Adds or replaces an account. Marking one primary unmarks the rest, so
+  /// "where does UPI money go" always has exactly one answer.
+  void saveAccount(BankAccount a) {
+    final list = [
+      for (final e in state.bankAccounts)
+        if (e.id != a.id) a.primary ? e.copyWith(primary: false) : e,
+      a,
+    ];
+    // The first bank is the primary one until somebody says otherwise.
+    final banks = list.where((e) => !e.cash).toList();
+    if (banks.isNotEmpty && !banks.any((e) => e.primary)) {
+      final i = list.indexWhere((e) => e.id == banks.first.id);
+      list[i] = list[i].copyWith(primary: true);
+    }
+    _set(state.copyWith(bankAccounts: list));
+  }
+
+  BankAccount addBank({
+    required String name,
+    String holder = '',
+    String accountNo = '',
+    String ifsc = '',
+    String branch = '',
+    String upiId = '',
+    double opening = 0,
+    DateTime? openingAt,
+    bool printOnInvoice = false,
+    bool printUpiQr = false,
+    bool primary = false,
+  }) {
+    final a = BankAccount(
+      id: newId('ba'),
+      name: name.trim(),
+      holder: holder.trim(),
+      accountNo: accountNo.trim(),
+      ifsc: ifsc.trim().toUpperCase(),
+      branch: branch.trim(),
+      upiId: upiId.trim(),
+      opening: money(opening),
+      openingAt: openingAt ?? DateTime.now(),
+      printOnInvoice: printOnInvoice,
+      printUpiQr: printUpiQr,
+      primary: primary,
+    );
+    saveAccount(a);
+    return a;
+  }
+
+  /// The drawer's opening balance, and the day it was counted.
+  void setCashOpening(double amount, DateTime at) => saveAccount(
+    state.cashAccount.copyWith(opening: money(amount), openingAt: at),
+  );
+
+  void removeAccount(String id) {
+    if (id == kCashAccountId) return;
+    _set(
+      state.copyWith(
+        bankAccounts: state.bankAccounts.where((e) => e.id != id).toList(),
+        // Lines that named it fall back to their mode rather than vanish.
+        cashBook: [
+          for (final e in state.cashBook)
+            if (e.accountId == id)
+              CashEntry(
+                id: e.id,
+                party: e.party,
+                amount: e.amount,
+                at: e.at,
+                inward: e.inward,
+                reason: e.reason,
+                mode: e.mode,
+                jobCardId: e.jobCardId,
+              )
+            else
+              e,
+        ],
+      ),
+    );
+  }
+
+  /// Moves money between two accounts — cash banked, cash withdrawn. Two
+  /// lines in the day book, one out of [fromId] and one into [toId].
+  void transferFunds({
+    required String fromId,
+    required String toId,
+    required double amount,
+    DateTime? at,
+    String note = '',
+  }) {
+    if (fromId == toId || amount <= 0) return;
+    final from = state.accountById(fromId);
+    final to = state.accountById(toId);
+    if (from == null || to == null) return;
+    final when = at ?? DateTime.now();
+    final tag = newId('tr');
+    final reason = note.trim().isEmpty ? 'Transfer' : note.trim();
+    addCash(
+      id: '$tag-out',
+      party: to.title,
+      amount: amount,
+      inward: false,
+      reason: reason,
+      mode: from.cash ? PayMode.cash : PayMode.netbanking,
+      accountId: fromId,
+      at: when,
+    );
+    addCash(
+      id: '$tag-in',
+      party: from.title,
+      amount: amount,
+      inward: true,
+      reason: reason,
+      mode: to.cash ? PayMode.cash : PayMode.netbanking,
+      accountId: toId,
+      at: when,
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Sales and purchase documents
+  // ---------------------------------------------------------------------
+
+  /// The next number for a kind of document — `PB-0007`.
+  String nextTradeNumber(TradeKind kind) {
+    var n = state.tradeDocs.where((d) => d.kind == kind).length + 1;
+    String fmt(int v) => '${kind.prefix}-${v.toString().padLeft(4, '0')}';
+    // A deleted document leaves a gap in the count, not a free number.
+    while (state.tradeDocs.any((d) => d.number == fmt(n))) {
+      n++;
+    }
+    return fmt(n);
+  }
+
+  /// Records a sale return, sale order, purchase bill or purchase return,
+  /// and everything it does to the rest of the books:
+  ///
+  /// * stock moves for every stocked line (none for an order);
+  /// * money settled on it enters the day book, in or out;
+  /// * what is left unpaid on a purchase bill is owed to the supplier, and
+  ///   a purchase return takes its unrefunded value off that debt.
+  TradeDoc addTradeDoc({
+    required TradeKind kind,
+    required List<TradeLine> lines,
+    String party = '',
+    String phone = '',
+    String gstin = '',
+    String address = '',
+    String? supplierId,
+    String? customerId,
+    TaxSplit split = TaxSplit.intra,
+    double discount = 0,
+    double paid = 0,
+    PayMode mode = PayMode.cash,
+    String? accountId,
+    String note = '',
+    String refNo = '',
+    DateTime? at,
+    DateTime? dueAt,
+  }) {
+    final supplier = state.supplierById(supplierId);
+    String pick(String typed, String? fallback) =>
+        typed.trim().isEmpty ? (fallback ?? '') : typed.trim();
+    final draft = TradeDoc(
+      id: newId('td'),
+      kind: kind,
+      number: nextTradeNumber(kind),
+      at: at ?? DateTime.now(),
+      party: pick(party, supplier?.name),
+      phone: pick(phone, supplier?.phone),
+      gstin: pick(gstin, supplier?.gstin),
+      address: pick(address, supplier?.address),
+      supplierId: supplierId,
+      customerId: customerId,
+      lines: lines,
+      split: split,
+      discount: money(discount),
+      mode: mode,
+      accountId: accountId,
+      note: note.trim(),
+      refNo: refNo.trim(),
+      dueAt: dueAt,
+    );
+    final settled = money(paid.clamp(0, draft.total));
+    final doc = draft.copyWith(paid: settled);
+
+    for (final l in lines) {
+      _moveStock(l.masterId, l.qty * kind.stockSign);
+    }
+    _set(state.copyWith(tradeDocs: [...state.tradeDocs, doc]));
+    if (settled > 0) {
+      addCash(
+        id: 'cb-${doc.id}',
+        party: doc.party.isEmpty ? doc.number : doc.party,
+        amount: settled,
+        inward: kind.moneyIn,
+        reason: doc.number,
+        mode: mode,
+        accountId: accountId,
+        at: doc.at,
+      );
+    }
+    _owe(supplierId, _debtOf(doc));
+    return doc;
+  }
+
+  /// What a document adds to the supplier's account: a bill's unpaid part
+  /// is owed, a return's unrefunded part is knocked off.
+  double _debtOf(TradeDoc d) => switch (d.kind) {
+    TradeKind.purchaseBill => d.balance,
+    TradeKind.purchaseReturn => -d.balance,
+    _ => 0,
+  };
+
+  void _owe(String? supplierId, double delta) {
+    final s = state.supplierById(supplierId);
+    if (s == null || delta == 0) return;
+    updateSupplier(
+      s.copyWith(
+        outstanding: money((s.outstanding + delta).clamp(0, double.infinity)),
+      ),
+    );
+  }
+
+  /// Settles more of a document after the fact.
+  void settleTradeDoc(
+    String id, {
+    required double amount,
+    required PayMode mode,
+    String? accountId,
+  }) {
+    final d = state.tradeDocs.firstWhereOrNull((e) => e.id == id);
+    if (d == null) return;
+    final take = money(amount.clamp(0, d.balance));
+    if (take <= 0) return;
+    _set(
+      state.copyWith(
+        tradeDocs: [
+          for (final e in state.tradeDocs)
+            if (e.id == id) e.copyWith(paid: money(e.paid + take)) else e,
+        ],
+      ),
+    );
+    addCash(
+      party: d.party.isEmpty ? d.number : d.party,
+      amount: take,
+      inward: d.kind.moneyIn,
+      reason: d.number,
+      mode: mode,
+      accountId: accountId,
+    );
+    _owe(d.supplierId, switch (d.kind) {
+      TradeKind.purchaseBill => -take,
+      TradeKind.purchaseReturn => take,
+      _ => 0,
+    });
+  }
+
+  /// A sale order handed over: the stock goes out now, and whatever is
+  /// collected at delivery is taken.
+  void fulfilSaleOrder(
+    String id, {
+    double collect = 0,
+    PayMode mode = PayMode.cash,
+    String? accountId,
+  }) {
+    final d = state.tradeDocs.firstWhereOrNull((e) => e.id == id);
+    if (d == null || d.kind != TradeKind.saleOrder || d.fulfilled) return;
+    for (final l in d.lines) {
+      _moveStock(l.masterId, -l.qty);
+    }
+    _set(
+      state.copyWith(
+        tradeDocs: [
+          for (final e in state.tradeDocs)
+            if (e.id == id) e.copyWith(fulfilled: true) else e,
+        ],
+      ),
+    );
+    if (collect > 0) {
+      settleTradeDoc(id, amount: collect, mode: mode, accountId: accountId);
+    }
+  }
+
+  /// An estimate turned into a job card. It stays on the list, marked.
+  void markEstimateConverted(String id) => _set(
+    state.copyWith(
+      tradeDocs: [
+        for (final e in state.tradeDocs)
+          if (e.id == id) e.copyWith(fulfilled: true) else e,
+      ],
+    ),
+  );
+
+  /// Deletes a document and undoes it: stock back where it was, its money
+  /// out of the day book, the supplier's account as it stood.
+  void removeTradeDoc(String id) {
+    final d = state.tradeDocs.firstWhereOrNull((e) => e.id == id);
+    if (d == null) return;
+    final sign = d.kind == TradeKind.saleOrder
+        ? (d.fulfilled ? -1 : 0)
+        : d.kind.stockSign;
+    for (final l in d.lines) {
+      _moveStock(l.masterId, -l.qty * sign);
+    }
+    // Everything paid against it comes off, so the supplier is put back to
+    // owing what they did before the document existed.
+    _owe(d.supplierId, switch (d.kind) {
+      TradeKind.purchaseBill => -d.total,
+      TradeKind.purchaseReturn => d.total,
+      _ => 0,
+    } + _paidBack(d));
+    _set(
+      state.copyWith(
+        tradeDocs: state.tradeDocs.where((e) => e.id != id).toList(),
+        cashBook: state.cashBook
+            .where((e) => e.id != 'cb-${d.id}' && e.reason != d.number)
+            .toList(),
+      ),
+    );
+  }
+
+  /// The money a document's own day-book lines moved, signed as the
+  /// supplier sees it — undone along with the document.
+  double _paidBack(TradeDoc d) => switch (d.kind) {
+    TradeKind.purchaseBill => d.paid,
+    TradeKind.purchaseReturn => -d.paid,
+    _ => 0,
+  };
+
+  /// Money received outside a job card — "Payment In".
+  CashEntry recordPaymentIn({
+    required String party,
+    required double amount,
+    PayMode mode = PayMode.cash,
+    String? accountId,
+    DateTime? at,
+  }) => addCash(
+    party: party,
+    amount: amount,
+    inward: true,
+    reason: kPaymentIn,
+    mode: mode,
+    accountId: accountId,
+    at: at,
+  );
+
+  /// Money paid to a supplier — "Pay Out". Comes off what they are owed.
+  CashEntry recordPayOut({
+    required String party,
+    required double amount,
+    String? supplierId,
+    PayMode mode = PayMode.cash,
+    String? accountId,
+    DateTime? at,
+  }) {
+    final e = addCash(
+      party: party,
+      amount: amount,
+      inward: false,
+      reason: kPayOut,
+      mode: mode,
+      accountId: accountId,
+      at: at,
+    );
+    _owe(supplierId, -money(amount));
+    return e;
+  }
+
+  // ---------------------------------------------------------------------
+  // Growing the business, and the companies on this phone
+  // ---------------------------------------------------------------------
+
+  void setSocial(SocialLinks links) => _set(state.copyWith(social: links));
+
+  /// Remembers the account now signed in, for "Switch company".
+  void rememberCompany(String email, String name) {
+    final key = email.trim().toLowerCase();
+    if (key.isEmpty) return;
+    _set(
+      state.copyWith(
+        knownCompanies: [
+          KnownCompany(email: key, name: name.trim(), lastUsed: DateTime.now()),
+          for (final c in state.knownCompanies)
+            if (c.email != key) c,
+        ],
+      ),
+    );
+  }
+
+  void forgetCompany(String email) => _set(
+    state.copyWith(
+      knownCompanies: [
+        for (final c in state.knownCompanies)
+          if (c.email != email.trim().toLowerCase()) c,
+      ],
     ),
   );
 

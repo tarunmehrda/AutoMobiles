@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/attendance.dart';
+import '../models/books.dart';
 import '../models/entities.dart';
 import '../models/enums.dart';
 
@@ -26,6 +27,10 @@ class AdminData {
     this.onlineServices = const [],
     this.attendance = const [],
     this.notifications = const [],
+    this.bankAccounts = const [],
+    this.tradeDocs = const [],
+    this.social = const SocialLinks(),
+    this.knownCompanies = const [],
     this.signedIn = false,
     this.onboarded = false,
     this.themeMode = ThemeMode.system,
@@ -71,6 +76,19 @@ class AdminData {
   /// the console has nothing to push back. Marking one read goes through
   /// `read_garage_notifications()`, not through the snapshot.
   final List<GarageNotification> notifications;
+
+  /// The drawer and the bank accounts, each with its opening balance.
+  final List<BankAccount> bankAccounts;
+
+  /// Sale returns and orders, purchase bills and returns.
+  final List<TradeDoc> tradeDocs;
+
+  /// Links shared from "Grow your business".
+  final SocialLinks social;
+
+  /// Every workshop account this phone has been signed in to. Survives
+  /// sign-out on purpose — it is what "Switch company" lists.
+  final List<KnownCompany> knownCompanies;
 
   final bool signedIn;
   final bool onboarded;
@@ -384,6 +402,83 @@ class AdminData {
         .fold<double>(0, (s, m) => s + m.stock * m.rate),
   );
 
+  // --- bank and cash --------------------------------------------------------
+
+  /// The drawer, real or implied. A workshop that never set an opening
+  /// balance still has one, at zero.
+  BankAccount get cashAccount =>
+      bankAccounts.where((a) => a.cash).firstOrNull ??
+      BankAccount.cashInHand();
+
+  /// Bank accounts, the primary first.
+  List<BankAccount> get banks {
+    final list = bankAccounts.where((a) => !a.cash).toList()
+      ..sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0));
+    return list;
+  }
+
+  /// Where non-cash money goes when nothing else is said.
+  BankAccount? get primaryBank =>
+      banks.where((a) => a.primary).firstOrNull ?? banks.firstOrNull;
+
+  /// The account a cash-book line moved, by its own say or by its mode.
+  String accountOf(CashEntry e) {
+    if (e.accountId != null) return e.accountId!;
+    if (e.mode == PayMode.cash) return kCashAccountId;
+    return primaryBank?.id ?? kCashAccountId;
+  }
+
+  /// What an account holds now: its opening balance plus every line since.
+  double balanceOf(BankAccount a) {
+    final from = a.openingAt;
+    var sum = a.opening;
+    for (final e in cashBook) {
+      if (accountOf(e) != a.id) continue;
+      if (from != null && e.at.isBefore(from)) continue;
+      sum += e.inward ? e.amount : -e.amount;
+    }
+    return money(sum);
+  }
+
+  /// The drawer and every bank together.
+  double get totalFunds => money(
+    balanceOf(cashAccount) +
+        banks.fold<double>(0, (s, a) => s + balanceOf(a)),
+  );
+
+  BankAccount? accountById(String? id) {
+    if (id == null) return null;
+    if (id == kCashAccountId) return cashAccount;
+    return bankAccounts.where((a) => a.id == id).firstOrNull;
+  }
+
+  // --- sales and purchases ---------------------------------------------------
+
+  List<TradeDoc> tradeOf(TradeKind kind) =>
+      tradeDocs.where((d) => d.kind == kind).toList()
+        ..sort((a, b) => b.at.compareTo(a.at));
+
+  /// Money received from parties outside a job card or a document —
+  /// "Payment In" — newest first.
+  List<CashEntry> get paymentsIn =>
+      cashBook.where((e) => e.inward && e.reason == kPaymentIn).toList()
+        ..sort((a, b) => b.at.compareTo(a.at));
+
+  /// Money paid out to suppliers — "Pay Out" — newest first.
+  List<CashEntry> get paymentsOut =>
+      cashBook.where((e) => !e.inward && e.reason == kPayOut).toList()
+        ..sort((a, b) => b.at.compareTo(a.at));
+
+  /// Every job card that has been billed, newest first: what Sales lists
+  /// as sale invoices.
+  List<JobCard> get billedCards =>
+      jobCards.where((j) => !j.isOpen && j.items.isNotEmpty).toList()
+        ..sort(
+          (a, b) => (b.completedAt ?? b.createdAt).compareTo(
+            a.completedAt ?? a.createdAt,
+          ),
+        );
+
   // --- reminders -----------------------------------------------------------
 
   /// Cards whose next service falls inside [from]..[to].
@@ -430,6 +525,10 @@ class AdminData {
     List<OnlineService>? onlineServices,
     List<AttendancePunch>? attendance,
     List<GarageNotification>? notifications,
+    List<BankAccount>? bankAccounts,
+    List<TradeDoc>? tradeDocs,
+    SocialLinks? social,
+    List<KnownCompany>? knownCompanies,
     bool? signedIn,
     bool? onboarded,
     ThemeMode? themeMode,
@@ -458,6 +557,10 @@ class AdminData {
     onlineServices: onlineServices ?? this.onlineServices,
     attendance: attendance ?? this.attendance,
     notifications: notifications ?? this.notifications,
+    bankAccounts: bankAccounts ?? this.bankAccounts,
+    tradeDocs: tradeDocs ?? this.tradeDocs,
+    social: social ?? this.social,
+    knownCompanies: knownCompanies ?? this.knownCompanies,
     signedIn: signedIn ?? this.signedIn,
     onboarded: onboarded ?? this.onboarded,
     themeMode: themeMode ?? this.themeMode,
@@ -477,6 +580,9 @@ class AdminData {
     onboarded: true,
     themeMode: themeMode,
     languageCode: languageCode,
+    // Not the workshop's data — the list of workshops this phone knows,
+    // which is what lets the owner switch back.
+    knownCompanies: knownCompanies,
   );
 
   Map<String, dynamic> toJson() => {
@@ -496,6 +602,10 @@ class AdminData {
     'online_services': onlineServices.map((e) => e.toJson()).toList(),
     'attendance': attendance.map((e) => e.toJson()).toList(),
     'notifications': notifications.map((e) => e.toJson()).toList(),
+    'bank_accounts': bankAccounts.map((e) => e.toJson()).toList(),
+    'trade_docs': tradeDocs.map((e) => e.toJson()).toList(),
+    'social': social.toJson(),
+    'known_companies': knownCompanies.map((e) => e.toJson()).toList(),
     'signed_in': signedIn,
     'onboarded': onboarded,
     'theme_mode': themeMode.name,
@@ -534,6 +644,12 @@ class AdminData {
       onlineServices: list('online_services', OnlineService.fromJson),
       attendance: list('attendance', AttendancePunch.fromJson),
       notifications: list('notifications', GarageNotification.fromJson),
+      bankAccounts: list('bank_accounts', BankAccount.fromJson),
+      tradeDocs: list('trade_docs', TradeDoc.fromJson),
+      social: SocialLinks.fromJson(
+        j['social'] == null ? null : Map<String, dynamic>.from(j['social'] as Map),
+      ),
+      knownCompanies: list('known_companies', KnownCompany.fromJson),
       signedIn: (j['signed_in'] ?? false) as bool,
       onboarded: (j['onboarded'] ?? false) as bool,
       themeMode: ThemeMode.values.firstWhere(

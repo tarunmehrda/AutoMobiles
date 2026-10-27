@@ -36,6 +36,16 @@ import '../../features/jobcard/panels/photos_page.dart';
 import '../../features/jobcard/panels/voices_page.dart';
 import '../../features/jobcard/panels/work_note_page.dart';
 import '../../features/money/cashbook_page.dart';
+import '../../features/money/account_statement_page.dart';
+import '../../features/money/bank_accounts_page.dart';
+import '../../features/business/grow_business_page.dart';
+import '../../features/settings/sync_share_page.dart';
+import '../../features/trade/estimates_page.dart';
+import '../../features/trade/purchase_page.dart';
+import '../../features/trade/sales_page.dart';
+import '../../features/trade/trade_detail_page.dart';
+import '../../features/trade/trade_form_page.dart';
+import '../../data/models/books.dart';
 import '../../features/money/expenses_page.dart';
 import '../../features/money/pending_page.dart';
 import '../../features/onboarding/onboarding_page.dart';
@@ -59,11 +69,13 @@ import '../../features/settings/settings_options_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/settings/staff_page.dart';
 import '../../features/settings/workshop_page.dart';
+import '../../features/splash/blocked_page.dart';
 import '../../features/splash/restoring_page.dart';
 import '../../features/splash/splash_page.dart';
 import '../../features/support/support_page.dart';
 import '../../state/admin_state.dart';
 import '../../state/auth_state.dart';
+import '../../state/providers.dart';
 import '../theme/app_tokens.dart';
 import 'app_shell.dart';
 
@@ -77,7 +89,8 @@ class _RouterRefresh extends ChangeNotifier {
       final changed =
           prev?.signedIn != next.signedIn ||
           prev?.onboarded != next.onboarded ||
-          (prev?.garage == null) != (next.garage == null);
+          (prev?.garage == null) != (next.garage == null) ||
+          prev?.garage?.blocked != next.garage?.blocked;
       if (changed) notifyListeners();
     });
     ref.listen(signedInProvider, (prev, next) {
@@ -94,6 +107,11 @@ class _RouterRefresh extends ChangeNotifier {
       if (prev != next) notifyListeners();
     });
     ref.listen(passwordRecoveryProvider, (prev, next) {
+      if (prev != next) notifyListeners();
+    });
+    // A role that changes under an open screen (the owner made a manager a
+    // mechanic) has to be able to send that screen home.
+    ref.listen(accessProvider, (prev, next) {
       if (prev != next) notifyListeners();
     });
   }
@@ -151,8 +169,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         }
         return loc == '/setup' ? null : '/setup';
       }
-      const gateRoutes = {'/login', '/onboarding', '/setup', '/restoring'};
+      // Blocked by the platform: nothing but the way to support. Platform
+      // stays reachable for a partner head whose own workshop this is; it
+      // shows nothing to anybody else.
+      if (data.garage!.blocked) {
+        const open = {'/blocked', '/platform', '/platform/admin'};
+        return open.contains(loc) ? null : '/blocked';
+      }
+      const gateRoutes = {
+        '/login',
+        '/onboarding',
+        '/setup',
+        '/restoring',
+        '/blocked',
+      };
       if (gateRoutes.contains(loc)) return '/home';
+      // A tile the role does not get is hidden; this is for the link, the
+      // notification tap or the back stack that still leads there.
+      if (!ref.read(accessProvider).allows(loc)) return '/home';
       return null;
     },
     routes: [
@@ -165,6 +199,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const ResetPasswordPage(),
       ),
       GoRoute(path: '/restoring', builder: (_, _) => const RestoringPage()),
+      GoRoute(path: '/blocked', builder: (_, _) => const BlockedPage()),
 
       // The bar carries five slots but only three are pages: Create is a
       // push and Support is a sheet.
@@ -206,6 +241,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => CreateJobCardPage(
           bookingId: state.uri.queryParameters['booking'],
           vehicleId: state.uri.queryParameters['vehicle'],
+          estimateId: state.uri.queryParameters['estimate'],
         ),
       ),
       GoRoute(
@@ -294,6 +330,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       // write it attempts is refused unless the account holds the
       // `platform` role. The guard is the database, not this table.
       GoRoute(path: '/platform', builder: (_, _) => const PlatformPage()),
+      GoRoute(
+        path: '/platform/admin',
+        builder: (_, s) => PlatformPage(
+          admin: true,
+          initialTab: s.uri.queryParameters['tab'] == 'media'
+              ? PlatformTab.content
+              : null,
+        ),
+      ),
       GoRoute(path: '/analytics', builder: (_, _) => const AnalyticsPage()),
       GoRoute(
         path: '/analytics/revenue',
@@ -309,6 +354,44 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/expenses', builder: (_, _) => const ExpensesPage()),
       GoRoute(path: '/cashbook', builder: (_, _) => const CashBookPage()),
+
+      // --- sales, purchase, estimates, bank -----------------------------
+      GoRoute(
+        path: '/sales',
+        builder: (_, st) => SalesPage(tab: st.uri.queryParameters['tab']),
+      ),
+      GoRoute(
+        path: '/purchase',
+        builder: (_, st) => PurchasePage(tab: st.uri.queryParameters['tab']),
+      ),
+      GoRoute(path: '/estimates', builder: (_, _) => const EstimatesPage()),
+      GoRoute(
+        path: '/trade/new',
+        builder: (_, st) => TradeFormPage(
+          kind: TradeKindX.parse(st.uri.queryParameters['kind']),
+          fromId: st.uri.queryParameters['from'],
+        ),
+      ),
+      GoRoute(
+        path: '/trade/:id',
+        builder: (_, st) => TradeDetailPage(id: st.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/bank-accounts',
+        builder: (_, _) => const BankAccountsPage(),
+      ),
+      GoRoute(
+        path: '/bank-accounts/:id',
+        builder: (_, st) => AccountStatementPage(id: st.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/grow-business',
+        builder: (_, _) => const GrowBusinessPage(),
+      ),
+      GoRoute(
+        path: '/settings/sync-share',
+        builder: (_, _) => const SyncSharePage(),
+      ),
       GoRoute(path: '/service-due', builder: (_, _) => const ServiceDuePage()),
 
       // --- reports ----------------------------------------------------

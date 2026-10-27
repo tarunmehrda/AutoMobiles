@@ -231,8 +231,8 @@ void main() {
       for (final kind in VehicleKind.values) {
         for (final area in VehicleArea.values) {
           final view = viewFor(kind, area);
-          if (area == VehicleArea.interior) {
-            expect(view, isNull, reason: 'the inside has no drawing');
+          if (area.listed) {
+            expect(view, isNull, reason: 'the inside and underside are listed');
           } else {
             expect(
               view,

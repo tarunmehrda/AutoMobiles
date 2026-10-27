@@ -47,6 +47,8 @@ class InvoicePage extends ConsumerWidget {
 
     final money = BillBlock.of(card);
     final head = Letterhead.of(card, shop);
+    final party = BillParty.of(card,
+        name: user?.name ?? '', phone: user?.phone ?? '');
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(title: card.number, subtitle: money.title),
@@ -97,59 +99,85 @@ class InvoicePage extends ConsumerWidget {
                 const SizedBox(height: Gap.lg),
 
                 // --- the three headers ------------------------------
-                // IntrinsicHeight + stretch: the three panels carry
-                // different numbers of lines, and left ragged they read
-                // as three unrelated boxes rather than one header band.
-                IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                    Expanded(
-                      child: _Block(
-                        title: 'Bill To:',
-                        rows: [
-                          user?.name ?? '',
-                          if ((user?.phone ?? '').isNotEmpty)
-                            'Mobile No: ${user!.phone}',
-                        ],
-                      ),
+                // Side by side when there is room, IntrinsicHeight +
+                // stretch so they read as one header band rather than three
+                // unrelated boxes. On a narrow phone, or at a large font,
+                // a third of the card is too thin for "RJ18CC1390" and the
+                // words broke mid-number, so they stack instead.
+                LayoutBuilder(builder: (context, box) {
+                  final blocks = [
+                    _Block(
+                      title: 'Bill To:',
+                      rows: party.billTo,
                     ),
-                    Expanded(
-                      child: _Block(
-                        title: 'Vehicle Details:',
-                        rows: [
-                          'Vehicle Number: ${Fmt.plate(card.regNo)}',
-                          'Model: ${card.vehicleTitle}',
-                          if (card.odometerKm > 0)
-                            'KM Reading: ${Fmt.km(card.odometerKm)}',
-                        ],
-                      ),
+                    _Block(
+                      title: 'Vehicle Details:',
+                      rows: [
+                        card.vehicleLine,
+                        if (card.odometerKm > 0)
+                          'KM Reading: ${Fmt.km(card.odometerKm)}',
+                      ],
                     ),
-                    Expanded(
-                      child: _Block(
-                        title: 'Invoice Details:',
-                        rows: [
-                          'Number: ${card.number}',
-                          'Date: ${Fmt.date(card.openedAt)}',
-                          Fmt.time(card.openedAt),
-                          if (money.taxed &&
-                              BillBlock.placeOfSupply(card.supplyState)
-                                  .isNotEmpty)
-                            'Place of Supply: '
-                                '${BillBlock.placeOfSupply(card.supplyState)}',
-                        ],
-                      ),
+                    _Block(
+                      title: 'Invoice Details:',
+                      rows: [
+                        'Number: ${card.number}',
+                        'Date: ${Fmt.date(card.openedAt)}',
+                        Fmt.time(card.openedAt),
+                        if (money.taxed &&
+                            BillBlock.placeOfSupply(card.supplyState)
+                                .isNotEmpty)
+                          'Place of Supply: '
+                              '${BillBlock.placeOfSupply(card.supplyState)}',
+                      ],
                     ),
-                    ],
+                  ];
+                  final narrow = box.maxWidth / 3 <
+                      MediaQuery.textScalerOf(context).scale(100);
+                  if (narrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < blocks.length; i++) ...[
+                          if (i > 0) const SizedBox(height: Gap.xs),
+                          blocks[i],
+                        ],
+                      ],
+                    );
+                  }
+                  return IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < blocks.length; i++) ...[
+                          if (i > 0) const SizedBox(width: Gap.xs),
+                          Expanded(child: blocks[i]),
+                        ],
+                      ],
+                    ),
+                  );
+                }),
+
+                // --- insurance, when the counter copied a policy --------
+                if (party.insurance.isNotEmpty) ...[
+                  const SizedBox(height: Gap.xs),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _Block(
+                        title: 'Insurance Details:', rows: party.insurance),
                   ),
-                ),
+                ],
 
                 const SizedBox(height: Gap.lg),
 
                 // --- the lines --------------------------------------
                 _Header(),
                 for (var i = 0; i < card.items.length; i++)
-                  _Line(index: i + 1, line: card.items[i]),
+                  _Line(
+                    index: i + 1,
+                    line: card.items[i],
+                    gst: BillBlock.gstOf(card, card.items[i]),
+                  ),
                 if (card.items.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: Gap.lg),
@@ -203,6 +231,20 @@ class InvoicePage extends ConsumerWidget {
                     ),
                   ],
                 ),
+
+                if (card.bank != null && card.bank!.rows.isNotEmpty) ...[
+                  const SizedBox(height: Gap.lg),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _Block(
+                      title: 'Bank Details:',
+                      rows: [
+                        for (final (label, value) in card.bank!.rows)
+                          '$label: $value',
+                      ],
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: Gap.lg),
                 Align(
@@ -258,7 +300,13 @@ class InvoicePage extends ConsumerWidget {
                 label: 'Share',
                 kind: GButtonKind.outline,
                 icon: Icons.ios_share_rounded,
-                onPressed: () => _share(context, card, shop, user?.name ?? ''),
+                onPressed: () => _share(
+                  context,
+                  card,
+                  shop,
+                  user?.name ?? '',
+                  user?.phone ?? '',
+                ),
               ),
             ),
             const SizedBox(width: Gap.md),
@@ -334,12 +382,14 @@ class InvoicePage extends ConsumerWidget {
     WorkshopCard card,
     Workshop shop,
     String name,
+    String phone,
   ) async {
     try {
       final bytes = await InvoicePdf.build(
         card: card,
         shop: shop,
         customerName: name,
+        customerPhone: phone,
       );
       await Printing.sharePdf(
           bytes: bytes, filename: InvoicePdf.fileName(card));
@@ -356,17 +406,19 @@ class InvoicePage extends ConsumerWidget {
     final b = StringBuffer()
       ..writeln(Letterhead.of(card, shop).name)
       ..writeln('Invoice ${card.number} • ${Fmt.date(card.openedAt)}')
-      ..writeln('$name • ${Fmt.plate(card.regNo)} • ${card.vehicleTitle}')
+      ..writeln([
+        card.billName.trim().isEmpty ? name : card.billName.trim(),
+        card.vehicleLine,
+      ].where((s) => s.isNotEmpty).join(' • '))
       ..writeln('');
     for (final li in card.items) {
-      b.writeln('${li.name}  ${Fmt.number(li.qty)} x '
-          '${Fmt.money(li.rate)} = ${Fmt.money(li.qty * li.rate)}');
+      b.writeln('${li.name}  ${li.qtyLabel} x '
+          '${Fmt.money(li.rate)} = ${Fmt.money(li.amount)}');
     }
-    b
-      ..writeln('')
-      ..writeln('Total ${Fmt.money(card.total)}')
-      ..writeln('Paid ${Fmt.money(card.paid)}')
-      ..writeln('Balance ${Fmt.money(card.balance)}');
+    b.writeln('');
+    for (final row in BillBlock.of(card).rows) {
+      b.writeln('${row.label} ${Fmt.money(row.value)}');
+    }
     return b.toString();
   }
 }
@@ -381,7 +433,6 @@ class _Block extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.c;
     return Container(
-      margin: const EdgeInsets.only(right: 4),
       padding: const EdgeInsets.all(Gap.sm),
       decoration: BoxDecoration(
         color: p.infoSoft,
@@ -414,37 +465,68 @@ class _Header extends StatelessWidget {
               width: 20,
               child: Text('#', style: AppType.labelS.c(p.info))),
           Expanded(
-            flex: 4,
+            flex: _Cols.name,
             child: Text('Particulars', style: AppType.labelS.c(p.info)),
           ),
-          Expanded(
-            child: Text('Qty',
-                textAlign: TextAlign.center,
-                style: AppType.labelS.c(p.info)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('Unit Price',
-                textAlign: TextAlign.right,
-                style: AppType.labelS.c(p.info)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('Total',
-                textAlign: TextAlign.right,
-                style: AppType.labelS.c(p.info)),
-          ),
+          for (final (label, flex, align) in const [
+            ('GST', _Cols.gst, TextAlign.center),
+            ('Qty', _Cols.qty, TextAlign.center),
+            ('Rate', _Cols.rate, TextAlign.right),
+            ('Amount', _Cols.amount, TextAlign.right),
+          ])
+            Expanded(
+              flex: flex,
+              child: _Fit(
+                align: align,
+                child: Text(label, style: AppType.labelS.c(p.info)),
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
+/// The table's column weights, shared by the header and every line so the
+/// two cannot drift apart. Sized for a 360dp phone: the figures shrink to fit
+/// before the particulars lose any more room.
+abstract final class _Cols {
+  static const name = 4;
+  static const gst = 2;
+  static const qty = 2;
+  static const rate = 3;
+  static const amount = 3;
+}
+
+/// One figure in its column, shrunk rather than wrapped or cut.
+class _Fit extends StatelessWidget {
+  const _Fit({required this.child, this.align = TextAlign.right});
+
+  final Widget child;
+  final TextAlign align;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = switch (align) {
+      TextAlign.center => Alignment.center,
+      TextAlign.left => Alignment.centerLeft,
+      _ => Alignment.centerRight,
+    };
+    return Align(
+      alignment: a,
+      child: FittedBox(fit: BoxFit.scaleDown, alignment: a, child: child),
+    );
+  }
+}
+
 class _Line extends StatelessWidget {
-  const _Line({required this.index, required this.line});
+  const _Line({required this.index, required this.line, required this.gst});
 
   final int index;
   final WorkshopLine line;
+
+  /// "18%", or a dash on an untaxed bill.
+  final String gst;
 
   @override
   Widget build(BuildContext context) {
@@ -458,25 +540,37 @@ class _Line extends StatelessWidget {
               width: 20,
               child: Text('$index', style: AppType.bodyS.c(p.inkMuted))),
           Expanded(
-            flex: 4,
+            flex: _Cols.name,
             child: Text(line.name, style: AppType.bodyS.c(p.ink)),
           ),
           Expanded(
-            child: Text(Fmt.number(line.qty),
-                textAlign: TextAlign.center,
-                style: AppType.bodyS.c(p.ink)),
+            flex: _Cols.gst,
+            child: _Fit(
+              align: TextAlign.center,
+              child: Text(gst, maxLines: 1, style: AppType.bodyS.c(p.inkMuted)),
+            ),
           ),
           Expanded(
-            flex: 2,
-            child: Text(Fmt.money(line.rate),
-                textAlign: TextAlign.right,
-                style: AppType.bodyS.c(p.ink)),
+            flex: _Cols.qty,
+            child: _Fit(
+              align: TextAlign.center,
+              child: Text(line.qtyLabel,
+                  maxLines: 1, style: AppType.bodyS.c(p.ink)),
+            ),
           ),
           Expanded(
-            flex: 2,
-            child: Text(Fmt.money(line.qty * line.rate),
-                textAlign: TextAlign.right,
-                style: AppType.labelM.c(p.ink)),
+            flex: _Cols.rate,
+            child: _Fit(
+              child: Text(Fmt.money(line.rate),
+                  maxLines: 1, style: AppType.bodyS.c(p.ink)),
+            ),
+          ),
+          Expanded(
+            flex: _Cols.amount,
+            child: _Fit(
+              child: Text(Fmt.money(line.amount),
+                  maxLines: 1, style: AppType.labelM.c(p.ink)),
+            ),
           ),
         ],
       ),
@@ -521,10 +615,20 @@ class _Money extends StatelessWidget {
             ),
           ),
           const SizedBox(width: Gap.sm),
-          Text(Fmt.money(value),
-              style: strong
-                  ? AppType.money.s(15).c(p.accentInk)
-                  : AppType.moneyS.c(p.ink)),
+          // The amount is shrunk to fit too, for the same reason: a
+          // six-figure total at a large font is wider than the panel.
+          Flexible(
+            flex: 2,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(Fmt.money(value),
+                  maxLines: 1,
+                  style: strong
+                      ? AppType.money.s(15).c(p.accentInk)
+                      : AppType.moneyS.c(p.ink)),
+            ),
+          ),
         ],
       ),
     );

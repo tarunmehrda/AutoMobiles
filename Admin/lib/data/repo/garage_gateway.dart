@@ -6,7 +6,10 @@ import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import '../models/access.dart';
+import '../models/books.dart';
 import '../models/entities.dart';
+import '../models/team.dart';
 import 'admin_data.dart';
 import 'auth_service.dart';
 
@@ -97,6 +100,10 @@ class GarageGateway {
 
   String? get garageId => _garageId;
 
+  /// What the signed-in person may do here. The owner until the database
+  /// says otherwise; see [Access].
+  final ValueNotifier<Access> access = ValueNotifier(Access.owner);
+
   /// What the server refused on the last push, by step, as a sentence the
   /// counter can read. Empty when everything went up.
   ///
@@ -122,7 +129,11 @@ class GarageGateway {
   /// A push failure in words. The raw exception still goes to the log.
   static String _describe(Object e) {
     if (e is PostgrestException) {
-      if (e.code == 'PGRST204' || e.code == '42703' || e.code == '42883') {
+      if (e.code == 'PGRST204' ||
+          e.code == 'PGRST205' ||
+          e.code == '42P01' ||
+          e.code == '42703' ||
+          e.code == '42883') {
         return 'The database needs the latest update (supabase/*.sql).';
       }
       if (e.code == '42501') return 'The database refused permission.';
@@ -235,6 +246,14 @@ class GarageGateway {
       return const GarageLookup.unreachable('The backend is not configured.');
     }
     try {
+      // An employee the owner invited joins that workshop here, before the
+      // lookup, so they arrive at it instead of at the registration form.
+      // A database without 31_staff_logins.sql simply has nothing to claim.
+      try {
+        await client.rpc('claim_staff_invite');
+      } catch (e) {
+        debugPrint('claim_staff_invite skipped: $e');
+      }
       final mine = await client.rpc('my_garage');
       if (mine != null) {
         final g = Garage.fromJson(Map<String, dynamic>.from(mine as Map));
@@ -243,7 +262,19 @@ class GarageGateway {
         return GarageLookup.found(g);
       }
       // The account answered, and the answer is that it has no workshop yet.
-      if (local == null) {
+      //
+      // Staff never register one from what is on the phone. A staff login
+      // the owner has just removed still holds that owner's workshop here,
+      // and "creating" it would open a copy of somebody else's shop under
+      // the ex-employee's name.
+      //
+      // Nor is a workshop the server has already issued an id to. If the
+      // server no longer lists it for this account, it was deleted, or it
+      // is another account's shop left on a shared phone. Uploading it again
+      // brought a deleted account's workshop straight back, and cloned one
+      // account's workshop into the next. Only a workshop registered with
+      // no connection, which exists on this phone alone, is sent up here.
+      if (local == null || !access.value.isOwner || serverIssued(local.id)) {
         lastError = null;
         return const GarageLookup.none();
       }
@@ -314,13 +345,19 @@ class GarageGateway {
   @visibleForTesting
   static List<JobCard> debugMergeCards(
     List<JobCard> local,
-    List<JobCard> upstream,
-  ) => _mergeCards(local, upstream);
+    List<JobCard> upstream, {
+    bool keepOrphans = true,
+  }) => _mergeCards(local, upstream, keepOrphans: keepOrphans);
 
   static List<JobCard> _mergeCards(
     List<JobCard> local,
-    List<JobCard> upstream,
-  ) {
+    List<JobCard> upstream, {
+    bool keepOrphans = true,
+  }) {
+    // Somebody who cannot open job cards never made one on this phone, so
+    // a card the server left out is one they have been taken off. Kept, it
+    // would be pushed back and refused on every sync.
+    if (!keepOrphans) return upstream;
     final ids = {for (final c in upstream) c.id};
     final orphans = [
       for (final c in local)
@@ -366,6 +403,13 @@ class GarageGateway {
           ? local.garage
           : Garage.fromJson(Map<String, dynamic>.from(j['garage'] as Map));
 
+      // The ledger tables arrived after garage_snapshot() last changed, and
+      // are read on their own so that function need not move. Null — no
+      // such table yet (35_*.sql not run) — keeps what the phone has.
+      final banks = await _readTable(client, 'bank_accounts', gid);
+      final trades = await _readTable(client, 'trade_docs', gid);
+      final socialRaw = (j['garage'] as Map?)?['social'];
+
       final next = local.copyWith(
         garage: garage,
         // The shopfront switch lives on the garage row now, so every phone
@@ -384,6 +428,7 @@ class GarageGateway {
         jobCards: _mergeCards(
           local.jobCards,
           list('job_cards', JobCard.fromJson),
+          keepOrphans: access.value.openJobs,
         ),
         expenses: known('expenses', Expense.fromJson),
         cashBook: known('cash_book', CashEntry.fromJson),
@@ -391,6 +436,11 @@ class GarageGateway {
         counterSales: known('counter_sales', CounterSale.fromJson),
         purchaseOrders: known('purchase_orders', PurchaseOrder.fromJson),
         onlineServices: known('online_services', OnlineService.fromJson),
+        bankAccounts: banks?.map(BankAccount.fromJson).toList(),
+        tradeDocs: trades?.map(TradeDoc.fromJson).toList(),
+        social: socialRaw is Map
+            ? SocialLinks.fromJson(Map<String, dynamic>.from(socialRaw))
+            : null,
       );
 
       // Everything upstream is now known-good; nothing needs pushing back —
@@ -411,6 +461,9 @@ class GarageGateway {
             'online_services',
           ])
             if (j[key] is! List) key,
+          if (banks == null) 'bank_accounts',
+          if (trades == null) 'trade_docs',
+          if (socialRaw is! Map) 'social',
         },
         stillLocal: {
           for (final c in next.jobCards)
@@ -435,6 +488,7 @@ class GarageGateway {
     _onCard = null;
     _onGone = null;
     syncIssues.value = const {};
+    access.value = Access.owner;
     await _closeChannel();
   }
 
@@ -645,13 +699,51 @@ class GarageGateway {
         ),
       );
 
+      await _step(
+        'bank accounts',
+        () => _syncTable(
+          client,
+          'bank_accounts',
+          gid,
+          data.bankAccounts,
+          id: (e) => e.id,
+          json: (e) => e.toJson(),
+        ),
+      );
+      await _step(
+        'sales & purchases',
+        () => _syncTable(
+          client,
+          'trade_docs',
+          gid,
+          data.tradeDocs,
+          id: (e) => e.id,
+          json: (e) => e.toJson(),
+        ),
+      );
+      // Kept apart from the letterhead below: a database without the
+      // column must not stop the garage's name and address syncing.
+      final social = data.social.toJson();
+      if (_changed('social', gid, social)) {
+        await _step('social links', () async {
+          await client.from('garages').update({'social': social}).eq('id', gid);
+          _remember('social', gid, social);
+        });
+      }
+
       // The workshop's own letterhead.
       final garage = data.garage;
       if (garage != null && _changed('garages', garage.id, garage.toJson())) {
         await _step('garage', () async {
           await client
               .from('garages')
-              .update(garage.toJson()..remove('id'))
+              // `blocked` is the platform's; a database without 29 has
+              // no such column, and PostgREST refuses the whole update.
+              .update(
+                garage.toJson()
+                  ..remove('id')
+                  ..remove('blocked'),
+              )
               .eq('id', gid);
           _remember('garages', garage.id, garage.toJson());
         });
@@ -870,6 +962,129 @@ class GarageGateway {
     for (final id in gone) {
       _echo.remove('$table/$id');
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Who may do what
+  // -------------------------------------------------------------------------
+
+  /// The signed-in person's role here, or null when it could not be asked.
+  Future<Access?> fetchAccess() async {
+    final client = _client;
+    final gid = _garageId;
+    if (client == null || gid == null) return null;
+    try {
+      final raw = await client.rpc('my_access', params: {'gid': gid});
+      if (raw is! Map) return null;
+      return Access.fromJson(Map<String, dynamic>.from(raw));
+    } catch (e) {
+      debugPrint('my_access failed: $e');
+      return null;
+    }
+  }
+
+  /// Whether [id] was handed out by the server (a uuid), as opposed to minted
+  /// on this phone for a workshop registered with no connection.
+  static bool serverIssued(String id) => _uuid.hasMatch(id);
+
+  static final _uuid = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
+  /// Whether an invitation for the signed-in email is waiting, claiming it
+  /// if so. The join screen polls this quietly; a hit is followed by the
+  /// full restore that opens the workshop.
+  Future<bool> claimInvite() async {
+    final client = _client;
+    if (client == null) return false;
+    try {
+      return await client.rpc('claim_staff_invite') != null;
+    } catch (e) {
+      debugPrint('claim_staff_invite failed: $e');
+      return false;
+    }
+  }
+
+  /// Everybody who can sign in here, and every invitation still waiting.
+  /// Null when it could not be read, or this person may not see the team.
+  Future<Team?> team() async {
+    final client = _client;
+    final gid = _garageId;
+    if (client == null || gid == null) return null;
+    try {
+      final raw = await client.rpc('garage_team', params: {'gid': gid});
+      if (raw is! Map) return null;
+      return Team.fromJson(Map<String, dynamic>.from(raw));
+    } catch (e) {
+      debugPrint('garage_team failed: $e');
+      return null;
+    }
+  }
+
+  /// Gives [email] the app, as [role], for the staff record [staffId].
+  /// Returns an error sentence, or null.
+  Future<String?> invite({
+    required String staffId,
+    required String email,
+    required StaffRole role,
+  }) async {
+    // The staff record has to be upstream before an invitation can name
+    // it, and a person added a moment ago may still be in the debounce.
+    await _flush();
+    return _teamCall('invite_staff', {
+      'payload': {
+        'garage_id': _garageId,
+        'email': email.trim(),
+        'role': role.name,
+        'staff_id': staffId,
+      },
+    });
+  }
+
+  Future<String?> setRole(String profileId, StaffRole role) => _teamCall(
+    'set_staff_role',
+    {'gid': _garageId, 'member': profileId, 'new_role': role.name},
+  );
+
+  Future<String?> removeAccess(String profileId) =>
+      _teamCall('remove_staff_access', {'gid': _garageId, 'member': profileId});
+
+  Future<String?> cancelInvite(String email) => _teamCall(
+    'cancel_staff_invite',
+    {'gid': _garageId, 'invite_email': email},
+  );
+
+  Future<String?> _teamCall(String fn, Map<String, dynamic> params) async {
+    final client = _client;
+    if (client == null || _garageId == null) {
+      return 'Connect to the internet to manage app access.';
+    }
+    try {
+      await client.rpc(fn, params: params);
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('$fn failed: $e');
+      // 31_staff_logins.sql words its refusals for the screen.
+      const worded = {'42501', '23514', '23505', 'P0002'};
+      if (worded.contains(e.code)) return e.message;
+      if (e.code == 'PGRST202' || e.code == '42883') {
+        return 'The database needs the latest update (supabase/*.sql).';
+      }
+      return 'Could not save that. Try again in a moment.';
+    } catch (e) {
+      debugPrint('$fn failed: $e');
+      return 'No connection to the server.';
+    }
+  }
+
+  /// Sends whatever is waiting in the debounce now.
+  Future<void> _flush() async {
+    final data = _pending;
+    if (data == null) return;
+    _debounce?.cancel();
+    _pending = null;
+    await _pushNow(data);
   }
 
   // -------------------------------------------------------------------------
@@ -1231,6 +1446,34 @@ class GarageGateway {
     }
     for (final e in data.onlineServices) {
       remember('online_services', e.id, e.toJson());
+    }
+    for (final e in data.bankAccounts) {
+      remember('bank_accounts', e.id, e.toJson());
+    }
+    for (final e in data.tradeDocs) {
+      remember('trade_docs', e.id, e.toJson());
+    }
+    final gid = _garageId;
+    if (gid != null) remember('social', gid, data.social.toJson());
+  }
+
+  /// Every row of a garage's table, or null when the table is not there.
+  Future<List<Map<String, dynamic>>?> _readTable(
+    SupabaseClient client,
+    String table,
+    String gid,
+  ) async {
+    try {
+      final rows = await client.from(table).select().eq('garage_id', gid);
+      return [
+        for (final r in rows as List)
+          Map<String, dynamic>.from(r as Map)
+            ..remove('garage_id')
+            ..remove('created_at'),
+      ];
+    } catch (e) {
+      debugPrint('$table not readable yet: $e');
+      return null;
     }
   }
 

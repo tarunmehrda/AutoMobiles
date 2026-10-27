@@ -86,6 +86,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: BrandArt.carbon,
+        // Nothing on this page takes typing; the email sheet does, and pads
+        // itself for the keyboard. Shrinking the page under it only squeezed
+        // the headline off the top.
+        resizeToAvoidBottomInset: false,
         body: Stack(
           fit: StackFit.expand,
           children: [

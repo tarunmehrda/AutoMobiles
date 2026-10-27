@@ -399,10 +399,20 @@ class _RequestCard extends StatelessWidget {
                 ),
                 child: Text(request.code, style: AppType.labelM.c(p.ink)),
               ),
-              const Spacer(),
-              if (request.quote != null)
-                Text(Fmt.money(request.quote!),
-                    style: AppType.money.c(p.success)),
+              const SizedBox(width: Gap.md),
+              // Shrinks rather than pushing the code off the card.
+              Expanded(
+                child: request.quote == null
+                    ? const SizedBox.shrink()
+                    : Align(
+                        alignment: Alignment.centerRight,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(Fmt.money(request.quote!),
+                              style: AppType.money.c(p.success)),
+                        ),
+                      ),
+              ),
             ],
           ),
           const SizedBox(height: Gap.md),

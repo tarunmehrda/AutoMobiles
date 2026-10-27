@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:garagepro_admin/core/config/app_config.dart';
 import 'package:garagepro_admin/core/router/app_router.dart';
 import 'package:garagepro_admin/data/models/entities.dart';
 import 'package:garagepro_admin/data/repo/local_store.dart';
@@ -103,6 +104,27 @@ void main() {
       await _settle(tester);
 
       expect(find.text('Registration'), findsNothing);
+      expect(find.text('Test Motors'), findsOneWidget);
+    });
+
+    testWidgets('holds a blocked workshop at the support number', (
+      tester,
+    ) async {
+      final container = await _container(
+        signedIn: true,
+        restoring: false,
+        garage: _garage.copyWith(blocked: true),
+      );
+      addTearDown(container.dispose);
+
+      await _pumpAt(tester, container, '/jobs');
+      expect(find.text('Your workshop is blocked'), findsOneWidget);
+      expect(find.text('+91 ${AppConfig.supportPhone}'), findsOneWidget);
+
+      // Unblocked upstream: the console lets them back in by itself.
+      container.read(adminProvider.notifier).saveGarage(_garage);
+      await _settle(tester);
+      expect(find.text('Your workshop is blocked'), findsNothing);
       expect(find.text('Test Motors'), findsOneWidget);
     });
   });

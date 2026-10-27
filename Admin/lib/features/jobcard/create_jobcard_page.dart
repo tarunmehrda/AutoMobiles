@@ -34,51 +34,83 @@ import '../shared/support_sheet.dart';
 import 'panels/checklist_page.dart';
 import 'widgets/draft_dents_page.dart';
 import 'billing/billing.dart';
+import 'intake/damage_panel.dart';
+import 'intake/intake_finder.dart';
+import 'intake/quick_list.dart';
+import 'intake/year_sheet.dart';
+import 'widgets/vehicle_parts.dart' show VehicleArea;
 import 'widgets/photo_pick.dart';
 import 'widgets/vehicle_picker.dart';
 
-/// Opening a card walks the same four steps the counter walks:
+/// Opening a card walks six steps, in the order the workshop's own paper
+/// intake sheet asks them:
 ///
-/// 1. find the vehicle, or decide it is new,
-/// 2. confirm who owns it and what it is,
-/// 3. take the handover — odometer, fuel, what the customer said, what came
-///    in with the car, what is already damaged,
-/// 4. build the bill and open the card.
+/// 1. who the customer is,
+/// 2. what the vehicle is, and its insurance,
+/// 3. the damage it came in with,
+/// 4. what the customer said, and what came in with the vehicle,
+/// 5. the services — spares, jobs and lubes — and who does them,
+/// 6. when it is promised back, money down, and open the card.
+///
+/// Steps 1, 2 and 5 are what the invoice is printed from. Steps 3 and 4 are
+/// the workshop's own protection at handover, and can be skipped.
 ///
 /// Each step keeps its own draft, so backing up never loses a field.
 class CreateJobCardPage extends ConsumerStatefulWidget {
-  const CreateJobCardPage({super.key, this.bookingId, this.vehicleId});
+  const CreateJobCardPage({
+    super.key,
+    this.bookingId,
+    this.vehicleId,
+    this.estimateId,
+  });
 
   final String? bookingId;
   final String? vehicleId;
+
+  /// An estimate being turned into a card: its customer and lines come with.
+  final String? estimateId;
 
   @override
   ConsumerState<CreateJobCardPage> createState() => _CreateJobCardPageState();
 }
 
+/// The modes an advance can be taken in at the counter. Card is left off:
+/// a swipe machine settles to the bank days later, and the counter books
+/// those as payments on the card, not as money down at intake.
+const _advanceModes = [
+  PayMode.cash,
+  PayMode.upi,
+  PayMode.cheque,
+  PayMode.netbanking,
+];
+
 class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   final _pager = PageController();
   int _step = 0;
 
-  // --- step 1 -------------------------------------------------------------
-  final _lookup = TextEditingController();
-  bool _noPlate = false;
-  bool _searched = false;
-
-  // --- step 2 -------------------------------------------------------------
-  final _reg = TextEditingController();
-  final _brand = TextEditingController();
-  final _model = TextEditingController();
-  final _variant = TextEditingController();
+  // --- 1 · customer -------------------------------------------------------
+  /// The one search box for a name, a number or a plate.
+  final _find = TextEditingController();
   final _name = TextEditingController();
   final _phone = TextEditingController();
   final _email = TextEditingController();
-  final _insurer = TextEditingController();
-  final _policy = TextEditingController();
   final _address = TextEditingController();
   final _gstin = TextEditingController();
-  DateTime? _policyExpiry;
-  bool _insuranceOpen = false;
+  bool _matchedCustomer = false;
+
+  /// The customer on record this card is for, once one has been picked or
+  /// the number typed matches one. Their vehicles are offered on step 2.
+  String? _ownerId;
+
+  // --- 2 · vehicle --------------------------------------------------------
+  final _reg = TextEditingController();
+  bool _noPlate = false;
+  bool _searched = false;
+  final _brand = TextEditingController();
+  final _model = TextEditingController();
+  final _variant = TextEditingController();
+  final _km = TextEditingController();
+  int _fuelLevel = 0;
   VehicleShape _shape = VehicleShape.fourWheeler;
   FuelType _fuel = FuelType.petrol;
 
@@ -86,11 +118,18 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   /// own booking.
   Transmission? _transmission;
 
-  /// Not asked for on this form; carried from the record or the booking so
-  /// saving the vehicle does not lose it.
+  /// The make year off the RC. Printed on the invoice, so it is asked for;
+  /// the record or the booking fills it when either knows it.
   int? _year;
   bool _matchedVehicle = false;
-  bool _matchedCustomer = false;
+
+  final _insurer = TextEditingController();
+  final _policy = TextEditingController();
+  final _insurerAddress = TextEditingController();
+  final _insurerGstin = TextEditingController();
+  DateTime? _policyFrom;
+  DateTime? _policyExpiry;
+  bool _insuranceOpen = false;
 
   /// The customer's request this card answers: the one the counter opened
   /// it from, or one the plate turned up. Accepted when the card is created,
@@ -102,22 +141,30 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   final _photos = <String>[];
   bool _pickingPhotos = false;
 
-  // --- step 3 -------------------------------------------------------------
-  final _km = TextEditingController();
-  int _fuelLevel = 0;
-  final _voices = <String>[];
-  final _accessories = <String>[];
+  // --- 3 · damage ---------------------------------------------------------
   final _dents = <DentMark>[];
 
-  // --- step 4 -------------------------------------------------------------
+  // --- 4 · voice and accessories ------------------------------------------
+  final _voices = <String>[];
+  final _accessories = <String>[];
+
+  // --- 5 · services -------------------------------------------------------
   final _items = <LineItem>[];
   final _estimate = TextEditingController();
-  final _advance = TextEditingController(text: '0');
-  final _notes = TextEditingController();
   final _mechanics = <String>[];
+
+  // --- 6 · delivery -------------------------------------------------------
   DateTime _promised = DateTime.now()
       .add(const Duration(days: 1))
       .copyWith(hour: 10, minute: 0, second: 0, millisecond: 0, microsecond: 0);
+
+  /// Whether money changed hands at intake. A box to tick rather than an
+  /// amount defaulting to zero, because "0" in a field reads as a decision
+  /// somebody made, and the mode chips only make sense once one was.
+  bool _advanceOn = false;
+  final _advance = TextEditingController();
+  PayMode _advanceMode = PayMode.cash;
+  final _notes = TextEditingController();
   bool _sms = true;
 
   @override
@@ -131,19 +178,21 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   void dispose() {
     _pager.dispose();
     for (final c in [
-      _lookup,
+      _find,
+      _name,
+      _phone,
+      _email,
+      _address,
+      _gstin,
       _reg,
       _brand,
       _model,
       _variant,
-      _name,
-      _phone,
-      _email,
+      _km,
       _insurer,
       _policy,
-      _address,
-      _gstin,
-      _km,
+      _insurerAddress,
+      _insurerGstin,
       _estimate,
       _advance,
       _notes,
@@ -154,17 +203,17 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   }
 
   // -----------------------------------------------------------------------
-  // Prefill — a booking or a vehicle passed in skips straight to the details.
+  // Prefill — an estimate, a booking or a vehicle passed in fills the form.
   // -----------------------------------------------------------------------
 
   void _prefill() {
     final data = ref.read(adminProvider);
+    _applyEstimate();
 
     if (widget.vehicleId != null) {
       final v = data.vehicleById(widget.vehicleId);
       if (v != null) {
-        _lookup.text = v.regNo;
-        _applyLookup(jump: true);
+        _applyLookup(reg: v.regNo, jump: true);
         return;
       }
     }
@@ -177,15 +226,58 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     _booking = booking;
     _name.text = booking.name;
     _phone.text = booking.phone;
-    if (booking.regNo.isNotEmpty) {
-      _lookup.text = booking.regNo;
-      _applyLookup();
-    }
+    if (booking.regNo.isNotEmpty) _applyLookup(reg: booking.regNo);
     _applyBooking(booking);
     setState(() {});
-    // Even without a plate: the page used to stay on the search step, under
-    // "Add a new vehicle", with everything the customer typed out of sight.
+    // The customer is who booked, so the card opens on what they booked —
+    // the vehicle — with the customer step a tap back on the stepper.
     _goTo(1);
+  }
+
+  /// An estimate turned into a card brings who it was for and every line on
+  /// it, so the work quoted is the work billed without being typed twice.
+  void _applyEstimate() {
+    final id = widget.estimateId;
+    if (id == null) return;
+    final data = ref.read(adminProvider);
+    final est = data.tradeDocs.firstWhereOrNull((d) => d.id == id);
+    if (est == null) return;
+
+    final who = data.customerById(est.customerId);
+    _name.text = est.party.trim().isNotEmpty ? est.party : (who?.name ?? '');
+    _phone.text = est.phone.trim().isNotEmpty ? est.phone : (who?.phone ?? '');
+    if (who != null) {
+      _email.text = who.email;
+      _address.text = who.address;
+      _gstin.text = who.gstin;
+      _ownerId = who.id;
+      _matchedCustomer = true;
+    } else {
+      _address.text = est.address;
+      _gstin.text = est.gstin;
+    }
+
+    for (final l in est.lines) {
+      _items.add(
+        LineItem(
+          id: newId('li'),
+          kind: l.kind,
+          name: l.name,
+          qty: l.qty,
+          rate: l.rate,
+          masterId: l.masterId,
+          // Zero on an estimate means "no slab given", and a null here bills
+          // the line at the card's rate rather than tax-free.
+          gstRate: l.gstRate == 0 ? null : l.gstRate,
+          unit: l.unit,
+        ),
+      );
+    }
+    _estimate.text = est.total.toStringAsFixed(2);
+    if (est.note.trim().isNotEmpty && _notes.text.trim().isEmpty) {
+      _notes.text = est.note.trim();
+    }
+    setState(() {});
   }
 
   /// The car as the customer described it when they booked.
@@ -226,21 +318,25 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     }
   }
 
-  /// Look the plate up. A hit fills the whole form; a miss simply means the
-  /// customer is new, which is a normal outcome, not an error.
-  void _applyLookup({bool jump = false}) {
+  /// Look the plate up. A hit fills the whole form — vehicle and owner; a
+  /// miss simply means the vehicle is new, which is a normal outcome, not an
+  /// error.
+  ///
+  /// [reg] is the plate to look up; left out, it is whatever is in the
+  /// plate field. [jump] moves on to the vehicle step, for a lookup started
+  /// from the customer step's search.
+  void _applyLookup({String? reg, bool jump = false}) {
     final data = ref.read(adminProvider);
-    final reg = _lookup.text.trim();
-    _reg.text = reg;
+    if (reg != null) _reg.text = reg.trim();
+    final typed = _reg.text.trim();
 
-    final v = data.vehicleByReg(reg);
+    final v = data.vehicleByReg(typed);
     if (v == null) {
       setState(() {
-        _searched = reg.isNotEmpty;
+        _searched = typed.isNotEmpty;
         _matchedVehicle = false;
-        _matchedCustomer = false;
       });
-      _followBooking(data.openBookingByReg(reg), ownerOnRecord: false);
+      _followBooking(data.openBookingByReg(typed), ownerOnRecord: false);
       if (jump) _goTo(1);
       return;
     }
@@ -256,7 +352,10 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     // Insurance comes back with the car, so a claim job is not typed twice.
     if (v.insurer.isNotEmpty) _insurer.text = v.insurer;
     if (v.policyNo.isNotEmpty) _policy.text = v.policyNo;
+    if (v.insuranceFrom != null) _policyFrom = v.insuranceFrom;
     if (v.insuranceExpiry != null) _policyExpiry = v.insuranceExpiry;
+    if (v.insurerAddress.isNotEmpty) _insurerAddress.text = v.insurerAddress;
+    if (v.insurerGstin.isNotEmpty) _insurerGstin.text = v.insurerGstin;
 
     final owner = data.customerById(v.customerId);
     if (owner != null) {
@@ -266,6 +365,7 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
       if (owner.address.isNotEmpty) _address.text = owner.address;
       if (owner.gstin.isNotEmpty) _gstin.text = owner.gstin;
       _matchedCustomer = true;
+      _ownerId = owner.id;
     }
 
     // Carry the last reading forward so the counter types the difference.
@@ -275,8 +375,9 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     setState(() {
       _searched = true;
       _matchedVehicle = true;
+      _noPlate = false;
     });
-    _followBooking(data.openBookingByReg(reg), ownerOnRecord: owner != null);
+    _followBooking(data.openBookingByReg(typed), ownerOnRecord: owner != null);
     if (jump) _goTo(1);
   }
 
@@ -309,45 +410,61 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     setState(() {});
   }
 
-  /// Straight to the details form for a vehicle that has not been here
-  /// before. Whatever is in the search box comes along as the registration —
-  /// typing it twice to add it is the kind of thing that makes a counter
-  /// stop using the app.
-  ///
-  /// It still runs the lookup first: if the plate turns out to be known, the
-  /// form arrives filled in rather than blank, which is never the wrong
-  /// outcome.
-  void _addNew() {
-    if (!_noPlate && _lookup.text.trim().isEmpty) {
-      GFeedback.info(
-        context,
-        'Type the registration number first, or switch on No Vehicle Number.'
-            .tr,
-      );
-      return;
-    }
-    _applyLookup(jump: true);
-  }
-
-  /// A rough guess so the vehicle-type box starts on the right one; the
-  /// counter can always flip it.
+  /// A number typed that is already on record brings the rest of that
+  /// customer with it — and their vehicles, offered on the next step.
   void _applyCustomerByPhone() {
     final existing = ref.read(adminProvider).customerByPhone(_phone.text);
     if (existing == null) {
-      if (_matchedCustomer) setState(() => _matchedCustomer = false);
+      if (_matchedCustomer || _ownerId != null) {
+        setState(() {
+          _matchedCustomer = false;
+          _ownerId = null;
+        });
+      }
       return;
     }
     _name.text = existing.name;
     if (_email.text.isEmpty) _email.text = existing.email;
-    setState(() => _matchedCustomer = true);
+    if (_address.text.isEmpty) _address.text = existing.address;
+    if (_gstin.text.isEmpty) _gstin.text = existing.gstin;
+    setState(() {
+      _matchedCustomer = true;
+      _ownerId = existing.id;
+    });
+  }
+
+  /// A customer picked from the search. Everything on record replaces what
+  /// was typed: the counter picked them precisely so as not to type it.
+  void _pickCustomer(Customer c) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _name.text = c.name;
+      _phone.text = c.phone;
+      _email.text = c.email;
+      _address.text = c.address;
+      _gstin.text = c.gstin;
+      _matchedCustomer = true;
+      _ownerId = c.id;
+      _find.clear();
+    });
+  }
+
+  /// A vehicle picked from the search: the plate lookup, run as if typed on
+  /// the vehicle step, which is where the counter lands — the customer is
+  /// already filled in by then.
+  void _pickVehicle(String reg) {
+    _find.clear();
+    _applyLookup(reg: reg, jump: true);
   }
 
   // -----------------------------------------------------------------------
   // Navigation
   // -----------------------------------------------------------------------
 
+  static const _lastStep = 5;
+
   void _goTo(int step) {
-    final clamped = step.clamp(0, 3);
+    final clamped = step.clamp(0, _lastStep);
     // Tapping Next twice, or Back on the first step, used to re-run the
     // animation from where it already was and read as a twitch.
     if (clamped == _step) return;
@@ -368,44 +485,59 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   /// A plate long enough to be one, or a vehicle that genuinely has none.
   ///
   /// This asks the *field*, not [_noPlate]. The two disagree whenever the
-  /// counter switches the toggle on, gets to the details step and then finds
-  /// a plate on the chassis after all — which is the normal way a walk-in
-  /// goes, and used to leave them stuck behind a greyed-out box.
+  /// counter switches the toggle on and then finds a plate on the chassis
+  /// after all — which is the normal way a walk-in goes, and used to leave
+  /// them stuck behind a greyed-out box.
   bool get _plateOk {
     final typed = _reg.text.trim();
     return typed.isEmpty ? _noPlate : typed.length >= 4;
   }
 
-  bool get _detailsValid =>
-      _plateOk &&
-      _brand.text.trim().isNotEmpty &&
-      _model.text.trim().isNotEmpty &&
-      _name.text.trim().isNotEmpty &&
-      _phone.text.trim().length >= 10;
+  /// What step 1 still needs, or null when it is done. Said in words: a
+  /// Next that only greys out leaves the counter hunting for the reason.
+  String? get _customerMissing {
+    if (_name.text.trim().isEmpty) return 'Enter the customer’s name'.tr;
+    if (_phone.text.trim().length < 10) {
+      return 'Enter a 10-digit contact number'.tr;
+    }
+    return null;
+  }
+
+  String? get _vehicleMissing {
+    if (!_plateOk) {
+      return 'Enter the vehicle number, or switch on No Vehicle Number'.tr;
+    }
+    if (_brand.text.trim().isEmpty) return 'Pick the brand'.tr;
+    if (_model.text.trim().isEmpty) return 'Pick the model'.tr;
+    if (_year == null || _year! <= 0) return 'Pick the make year'.tr;
+    return null;
+  }
+
+  /// Next on a step that is not finished says what is missing instead of
+  /// moving on.
+  void _next(int from, String? missing) {
+    if (missing != null) {
+      GFeedback.error(context, missing);
+      return;
+    }
+    _goTo(from + 1);
+  }
 
   double get _itemsTotal => _items.fold<double>(0, (s, e) => s + e.amount);
-
-  /// The KM field says "required" and was not: Next was always live, and a
-  /// card opened at 0 km breaks every service-due reminder worked out from
-  /// it afterwards.
-  bool get _kmEntered => _km.text.trim().isNotEmpty;
 
   // -----------------------------------------------------------------------
   // Create
   // -----------------------------------------------------------------------
 
   void _create() {
-    if (!_detailsValid) {
-      _goTo(1);
-      GFeedback.error(
-        context,
-        'Fill the vehicle and customer details first'.tr,
-      );
+    if (_customerMissing case final why?) {
+      _goTo(0);
+      GFeedback.error(context, why);
       return;
     }
-    if (!_kmEntered) {
-      _goTo(2);
-      GFeedback.error(context, 'Enter the KM reading first'.tr);
+    if (_vehicleMissing case final why?) {
+      _goTo(1);
+      GFeedback.error(context, why);
       return;
     }
     final ctrl = ref.read(adminProvider.notifier);
@@ -415,7 +547,6 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
       phone: _phone.text.trim(),
       email: _email.text.trim(),
       address: _address.text.trim(),
-      // Typed on this form and, until now, never read by it.
       gstin: _gstin.text.trim(),
     );
     final vehicle = ctrl.upsertVehicle(
@@ -432,7 +563,10 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
       year: _year,
       insurer: _insurer.text.trim(),
       policyNo: _policy.text.trim(),
+      insuranceFrom: _policyFrom,
       insuranceExpiry: _policyExpiry,
+      insurerAddress: _insurerAddress.text.trim(),
+      insurerGstin: _insurerGstin.text.trim(),
     );
 
     // This card's choice. It used to be written into the workshop-wide
@@ -441,6 +575,9 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     final card = ctrl.createJobCard(
       customerId: customer.id,
       vehicleId: vehicle.id,
+      // Optional on the form: a car towed in with a dead cluster has no
+      // reading to give, and holding the card hostage to one only got "0"
+      // typed in to get past it.
       odometerKm: int.tryParse(_km.text.trim()) ?? 0,
       fuelPercent: _fuelLevel,
       promisedAt: _promised,
@@ -454,7 +591,12 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     // against, so the estimate becomes its single labour line.
     final quoted = _quoted;
     if (_items.isEmpty && quoted > 0) {
-      ctrl.addItem(card.id, kind: LineKind.job, name: 'Estimate', rate: quoted);
+      ctrl.addItem(
+        card.id,
+        kind: LineKind.job,
+        name: 'Labour charge'.tr,
+        rate: quoted,
+      );
     }
 
     for (final li in _items) {
@@ -467,6 +609,8 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
         rate: li.rate,
         mechanicId: li.mechanicId,
         master: ref.read(adminProvider).masterById(li.masterId),
+        gstRate: li.gstRate,
+        unit: li.unit,
       );
     }
     for (final d in _dents) {
@@ -483,7 +627,7 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
       ctrl.addPayment(
         card.id,
         amount: advance,
-        mode: PayMode.cash,
+        mode: _advanceMode,
         note: 'Jobcard Payment Advance'.tr,
         // Taken in full even when the card has no lines yet — it used to be
         // cut to the (zero) balance and vanish.
@@ -495,6 +639,11 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     if (booking != null) {
       ctrl.acceptBooking(booking.id, jobCardId: card.id);
     }
+    // Only once the card exists, so an abandoned intake leaves the estimate
+    // open to be converted again.
+    if (widget.estimateId != null) {
+      ctrl.markEstimateConverted(widget.estimateId!);
+    }
 
     // There is no SMS gateway: with this card's switch on, the welcome
     // message opens in the phone's SMS app and the counter taps Send there.
@@ -502,7 +651,9 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     // `ref` is read before its first await, while this page is still here.
     if (_sms) sendNewCardSms(context, ref, card.id, 'Job card created');
     GFeedback.success(context, 'Jobcard Created Successfully!!'.tr);
-    context.pushReplacement('/job/${card.id}');
+    // Step 7 of the owner's flow: the card opens on the mechanic copy, ready
+    // to hand to the floor; the invoice (step 8) is a tab away.
+    context.pushReplacement('/job/${card.id}?doc=mechanicCopy');
   }
 
   // -----------------------------------------------------------------------
@@ -523,7 +674,7 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
           onBack: () => _step == 0 ? context.pop() : _goTo(_step - 1),
           onHelp: () => GFeedback.info(
             context,
-            'Find the vehicle, confirm the owner, take the handover, then build the bill.'
+            'Customer, vehicle, damage, what they said, the work, then the promise. Damage and voice can be skipped.'
                 .tr,
           ),
         ),
@@ -536,624 +687,157 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
           // stutter you see at the moment of the tap.
           allowImplicitScrolling: true,
           // [_goTo] has already moved the stepper, so by the time the page
-          // settles this is a no-op — and a setState here rebuilds all four
-          // steps mid-slide for nothing. Only a scroll that started
-          // elsewhere gets through.
+          // settles this is a no-op — and a setState here rebuilds every
+          // step mid-slide for nothing. Only a scroll that started elsewhere
+          // gets through.
           onPageChanged: (i) {
             if (i != _step) setState(() => _step = i);
           },
-          children: [_findStep(), _detailsStep(), _handoverStep(), _billStep()],
+          children: [
+            _customerStep(),
+            _vehicleStep(),
+            _damageStep(),
+            _voiceStep(),
+            _servicesStep(),
+            _deliveryStep(),
+          ],
         ),
       ),
     );
   }
 
-  // --- step 1 -------------------------------------------------------------
-
-  Widget _findStep() {
-    final p = context.c;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.h2),
+  /// A step's frame: the form scrolling between an optional pinned head and
+  /// the bar that moves the card on.
+  Widget _stepFrame({
+    Widget? pinned,
+    required List<Widget> children,
+    required Widget bar,
+  }) {
+    return Column(
       children: [
-        _Band(
-          label: 'Find the Vehicle'.tr,
-          blurb: 'Search a plate, or start a new one'.tr,
-          icon: Icons.pin_rounded,
-          tone: GTone.accent,
-        ),
-        const SizedBox(height: Gap.md),
-
-        // 1. Automotive Plate Scanner Box
-        Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: p.isDark ? p.surface : Colors.white,
-            borderRadius: R.all(R.lg),
-            border: Border.all(
-              color: p.isDark ? p.line : const Color(0xFFD3D9E2),
-              width: 1.2,
+        ?pinned,
+        Expanded(
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(
+              Gap.page,
+              pinned == null ? Gap.md : Gap.lg,
+              Gap.page,
+              Gap.xxl,
             ),
-            boxShadow: Shadows.soft(p),
-          ),
-          child: Row(
-            children: [
-              // IND Badge Prefix
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F3E8C),
-                  borderRadius: R.all(R.sm),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      height: 7,
-                      width: 7,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFFFFCC00),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'IND',
-                      style: AppType.over
-                          .s(8)
-                          .c(Colors.white)
-                          .w(FontWeight.w900),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: Gap.sm),
-              Expanded(
-                child: TextField(
-                  controller: _lookup,
-                  textCapitalization: TextCapitalization.characters,
-                  style: AppType.money.s(15).c(p.ink).w(FontWeight.w700),
-                  decoration: InputDecoration(
-                    hintText: 'Search or Add Vehicle No'.tr,
-                    hintStyle: AppType.bodyS.s(12).c(p.inkFaint),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  // Typing a plate is itself the statement that there is
-                  // one, so the toggle gives way rather than fighting it.
-                  onChanged: (v) => setState(() {
-                    _searched = false;
-                    if (v.trim().isNotEmpty) _noPlate = false;
-                  }),
-                  onSubmitted: (_) => _applyLookup(),
-                  textInputAction: TextInputAction.search,
-                ),
-              ),
-              GButton.accent(
-                label: 'Search'.tr,
-                size: GButtonSize.md,
-                icon: Icons.search_rounded,
-                // Live whenever there is something to look up. Gating this on
-                // the toggle meant a counter who flipped it by mistake had to
-                // find the toggle again before they could search at all.
-                onPressed: _lookup.text.trim().isEmpty ? null : _applyLookup,
-              ),
-            ],
+            children: children,
           ),
         ),
-        const SizedBox(height: Gap.md),
-
-        // 2. No Vehicle Number Toggle Card
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Gap.md,
-            vertical: Gap.sm,
-          ),
-          decoration: BoxDecoration(
-            color: p.isDark ? p.surfaceAlt : const Color(0xFFF7F8FA),
-            borderRadius: R.all(R.md),
-            border: Border.all(color: p.lineSoft),
-          ),
-          child: Row(
-            children: [
-              Container(
-                height: 32,
-                width: 32,
-                decoration: BoxDecoration(
-                  color: p.surfaceSunken,
-                  borderRadius: R.all(R.sm),
-                ),
-                child: Icon(
-                  Icons.car_crash_rounded,
-                  size: 16,
-                  color: p.inkMuted,
-                ),
-              ),
-              const SizedBox(width: Gap.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'No Vehicle Number'.tr,
-                      style: AppType.labelM.s(12.5).c(p.ink).w(FontWeight.w600),
-                    ),
-                    Text(
-                      'Walk-in transit or unnumbered vehicle'.tr,
-                      style: AppType.bodyS.s(10).c(p.inkFaint),
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: _noPlate,
-                activeThumbColor: p.accent,
-                activeTrackColor: p.accent.withValues(alpha: 0.3),
-                onChanged: (v) => setState(() {
-                  _noPlate = v;
-                  if (v) {
-                    _lookup.clear();
-                    _reg.clear();
-                    _searched = true;
-                    _matchedVehicle = false;
-                  } else {
-                    _searched = false;
-                    _matchedVehicle = false;
-                  }
-                }),
-              ),
-            ],
-          ),
-        ),
-        Divider(height: Gap.xl, color: p.line),
-
-        if (_booking != null && !_matchedVehicle)
-          Entrance(
-            child: _BookedCard(booking: _booking!, onContinue: () => _goTo(1)),
-          )
-        else if (!_searched)
-          _VehicleScannerHUD(onAddManual: _addNew)
-        else if (_matchedVehicle)
-          Entrance(
-            child: Column(
-              children: [
-                _MatchCard(
-                  name: _name.text,
-                  phone: _phone.text,
-                  vehicle: '${_brand.text} ${_model.text}'.trim(),
-                  reg: _reg.text,
-                  onContinue: () => _goTo(1),
-                ),
-                if (_booking != null) ...[
-                  const SizedBox(height: Gap.md),
-                  _BookedCard(booking: _booking!),
-                ],
-              ],
-            ),
-          )
-        else
-          Entrance(
-            child: Container(
-              padding: const EdgeInsets.all(Gap.lg),
-              decoration: BoxDecoration(
-                color: p.isDark ? p.surfaceAlt : const Color(0xFFF9FAFC),
-                borderRadius: R.all(R.xl),
-                border: Border.all(color: p.line),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    height: 44,
-                    width: 44,
-                    decoration: BoxDecoration(
-                      color: p.accentSoft,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.person_add_alt_1_rounded,
-                      size: 22,
-                      color: p.accent,
-                    ),
-                  ),
-                  const SizedBox(height: Gap.md),
-                  Text(
-                    _noPlate
-                        ? 'No registration number'.tr
-                        : 'Vehicle not registered yet'.tr,
-                    textAlign: TextAlign.center,
-                    style: AppType.h2.s(15).c(p.ink).w(FontWeight.w700),
-                  ),
-                  const SizedBox(height: Gap.xs),
-                  Text(
-                    'No prior workshop records match this plate. You can onboard this as a new customer profile.'
-                        .tr,
-                    textAlign: TextAlign.center,
-                    style: AppType.bodyS.s(11).c(p.inkMuted),
-                  ),
-                  const SizedBox(height: Gap.lg),
-                  GButton.accent(
-                    label: 'ONBOARD NEW CUSTOMER'.tr,
-                    trailingIcon: Icons.arrow_forward_rounded,
-                    onPressed: () => _goTo(1),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        GBottomBar(child: bar),
       ],
     );
   }
 
-  // --- step 2 -------------------------------------------------------------
+  // --- 1 · customer -------------------------------------------------------
 
-  Widget _detailsStep() {
+  Widget _customerStep() {
     final p = context.c;
-    return Column(
+    final query = _find.text.trim();
+    return _stepFrame(
       children: [
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.xxl),
-            children: [
-              _Band(
-                label: 'Vehicle Details'.tr,
-                blurb: 'What came in'.tr,
-                icon: Icons.directions_car_filled_rounded,
-                tone: GTone.accent,
-                action: 'Search New',
-                actionIcon: Icons.search_rounded,
-                onAction: () => _goTo(0),
-              ),
-              const SizedBox(height: Gap.md),
-              // Everything the customer typed, whole and first. The fields
-              // below hold it too, but spread down a long form — the slot,
-              // the year and what they asked for had no field at all here.
-              if (_booking != null) ...[
-                _BookedCard(booking: _booking!),
-                const SizedBox(height: Gap.md),
-              ],
-              // The vehicle as it currently reads, above the fields that
-              // spell it out. It is the fastest check there is that the
-              // counter is opening a card on the right thing: the picture
-              // redraws on every pick below, so a mis-tapped model or body
-              // style is seen rather than discovered at handover.
-              GVehicleCard(
-                plate: Fmt.plate(_reg.text.trim()),
-                title: [
-                  _brand.text,
-                  _model.text,
-                  _variant.text,
-                ].where((e) => e.trim().isNotEmpty).join(' '),
-                shape: _shape,
-                photo: VehicleMedia.photoFor(_brand.text, _model.text, _shape),
-                logo: VehicleMedia.logoFor(_brand.text),
-                subtitle: [
-                  _shape.label,
-                  _fuel.label,
-                  if (_transmission != null) _transmission!.label,
-                  if (_year != null && _year! > 0) '$_year',
-                ].join('  •  '),
-                badge: _matchedVehicle
-                    ? GPill(
-                        label: 'On record'.tr,
-                        tone: GTone.success,
-                        compact: true,
-                      )
-                    : null,
-              ),
-              const SizedBox(height: Gap.lg),
-              GField(
-                // Optional only while the vehicle is declared to have no
-                // plate; the moment one is typed it is the card's identity
-                // again.
-                label: _noPlate && _reg.text.trim().isEmpty
-                    ? 'Vehicle Number'.tr
-                    : 'Vehicle Number *'.tr,
-                controller: _reg,
-                textCapitalization: TextCapitalization.characters,
-                hint: _noPlate
-                    ? 'Found one on the chassis? Type it here'.tr
-                    : null,
-                onChanged: (v) => setState(() {
-                  if (v.trim().isNotEmpty) _noPlate = false;
-                }),
-                suffix: _matchedVehicle
-                    ? Icon(
-                        Icons.check_circle_rounded,
-                        size: 18,
-                        color: p.success,
-                      )
-                    : null,
-              ),
-              const SizedBox(height: Gap.lg),
-              Row(
-                children: [
-                  Expanded(
-                    child: GPickerField(
-                      label: 'Search make, model or variant'.tr,
-                      value: _brand.text.isEmpty
-                          ? null
-                          : [
-                              _brand.text,
-                              _model.text,
-                              _variant.text,
-                            ].where((e) => e.isNotEmpty).join(' '),
-                      placeholder: 'Search the catalogue'.tr,
-                      leadingIcon: Icons.search_rounded,
-                      onTap: _pickMake,
-                    ),
-                  ),
-                  const SizedBox(width: Gap.md),
-                  Text('OR', style: AppType.labelM.c(p.inkFaint)),
-                ],
-              ),
-              const SizedBox(height: Gap.lg),
-              Text('VEHICLE TYPE'.tr, style: AppType.over.c(p.inkFaint)),
-              const SizedBox(height: Gap.sm),
-              Row(
-                children: [
-                  for (final shape in VehicleShape.values) ...[
-                    Expanded(
-                      child: VehicleShapeChip(
-                        shape: shape,
-                        selected: _shape == shape,
-                        onTap: () => setState(() => _shape = shape),
-                      ),
-                    ),
-                    if (shape != VehicleShape.values.last)
-                      const SizedBox(width: Gap.sm),
-                  ],
-                ],
-              ),
-              const SizedBox(height: Gap.lg),
-              Row(
-                children: [
-                  Expanded(
-                    child: GPickerField(
-                      label: 'Make'.tr,
-                      value: _brand.text.isEmpty ? null : _brand.text,
-                      placeholder: 'Select'.tr,
-                      onTap: _pickMake,
-                    ),
-                  ),
-                  const SizedBox(width: Gap.sm),
-                  Expanded(
-                    child: GPickerField(
-                      label: 'Model'.tr,
-                      value: _model.text.isEmpty ? null : _model.text,
-                      placeholder: 'Select'.tr,
-                      onTap: _brand.text.isEmpty ? null : _pickModel,
-                    ),
-                  ),
-                  const SizedBox(width: Gap.sm),
-                  Expanded(
-                    child: GPickerField(
-                      label: 'Variant'.tr,
-                      value: _variant.text.isEmpty ? null : _variant.text,
-                      placeholder: 'Select'.tr,
-                      onTap: _model.text.isEmpty ? null : _pickVariant,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Gap.lg),
-              Text('FUEL', style: AppType.over.c(p.inkFaint)),
-              const SizedBox(height: Gap.sm),
-              Wrap(
-                spacing: Gap.sm,
-                runSpacing: Gap.sm,
-                children: [
-                  for (final f in FuelType.values)
-                    _Choice(
-                      label: f.label,
-                      selected: _fuel == f,
-                      onTap: () => setState(() => _fuel = f),
-                    ),
-                ],
-              ),
-              const SizedBox(height: Gap.lg),
-              Text('GEARBOX'.tr, style: AppType.over.c(p.inkFaint)),
-              const SizedBox(height: Gap.sm),
-              Wrap(
-                spacing: Gap.sm,
-                runSpacing: Gap.sm,
-                children: [
-                  for (final t in Transmission.values)
-                    _Choice(
-                      label: t.label,
-                      selected: _transmission == t,
-                      // A second tap takes it back to "not recorded", which
-                      // is a real answer for a car nobody has looked at yet.
-                      onTap: () => setState(
-                        () => _transmission = _transmission == t ? null : t,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: Gap.xxl),
-              _Band(
-                label: 'Vehicle Photos'.tr,
-                blurb: 'The condition it came in'.tr,
-                icon: Icons.photo_camera_rounded,
-                tone: GTone.info,
-                action: _photos.isEmpty ? 'Add' : 'Add more',
-                actionIcon: Icons.add_a_photo_rounded,
-                onAction: _pickPhotos,
-              ),
-              const SizedBox(height: Gap.md),
-              _PhotoStrip(
-                paths: _photos,
-                busy: _pickingPhotos,
-                onAdd: _pickPhotos,
-                onRemove: (path) => setState(() => _photos.remove(path)),
-              ),
-              const SizedBox(height: Gap.xxl),
-              _Band(
-                label: 'Customer Details'.tr,
-                blurb: 'Who is bringing it in'.tr,
-                icon: Icons.person_rounded,
-                tone: GTone.success,
-                action: 'Contacts',
-                actionIcon: Icons.person_add_alt_rounded,
-                onAction: _pickFromCustomers,
-              ),
-              const SizedBox(height: Gap.md),
-              GField(
-                label: 'Full Name *'.tr,
-                hint: 'Rahul Sharma'.tr,
-                controller: _name,
-                textCapitalization: TextCapitalization.words,
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: Gap.lg),
-              GField(
-                label: 'Mobile Number *'.tr,
-                hint: '9876543210',
-                controller: _phone,
-                keyboardType: TextInputType.phone,
-                textCapitalization: TextCapitalization.none,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(10),
-                ],
-                onChanged: (_) {
-                  _applyCustomerByPhone();
-                  setState(() {});
-                },
-                suffix: _matchedCustomer
-                    ? Icon(
-                        Icons.check_circle_rounded,
-                        size: 18,
-                        color: p.success,
-                      )
-                    : null,
-              ),
-              const SizedBox(height: Gap.lg),
-              GField(
-                label: 'Email'.tr,
-                hint: 'xyz@gmail.com',
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                textCapitalization: TextCapitalization.none,
-              ),
-              const SizedBox(height: Gap.lg),
-              Pressable(
-                onTap: () => setState(() => _insuranceOpen = !_insuranceOpen),
-                scale: 0.97,
-                child: Row(
-                  children: [
-                    Icon(
-                      _insuranceOpen
-                          ? Icons.remove_circle_rounded
-                          : Icons.add_circle_rounded,
-                      size: 18,
-                      color: p.accent,
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    Text(
-                      _insuranceOpen
-                          ? 'Hide Insurance Details'.tr
-                          : 'Add Insurance Details'.tr,
-                      style: AppType.labelL
-                          .c(p.accentInk)
-                          .copyWith(
-                            fontStyle: FontStyle.italic,
-                            decoration: TextDecoration.underline,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              AnimatedSize(
-                duration: Motion.base,
-                curve: Motion.emphasized,
-                child: _insuranceOpen
-                    ? Padding(
-                        padding: const EdgeInsets.only(top: Gap.lg),
-                        child: Column(
-                          children: [
-                            _Band(
-                              label: 'Insurance Details'.tr,
-                              blurb: 'Policy, insurer and cover'.tr,
-                              icon: Icons.shield_rounded,
-                              tone: GTone.info,
-                            ),
-                            const SizedBox(height: Gap.md),
-                            GField(
-                              label: 'Insurance Name'.tr,
-                              hint: 'ICICI Lombard'.tr,
-                              controller: _insurer,
-                              textCapitalization: TextCapitalization.words,
-                            ),
-                            const SizedBox(height: Gap.lg),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: GField(
-                                    label: 'Policy No'.tr,
-                                    hint: 'POL1234567',
-                                    controller: _policy,
-                                    textCapitalization:
-                                        TextCapitalization.characters,
-                                  ),
-                                ),
-                                const SizedBox(width: Gap.md),
-                                Expanded(
-                                  child: GPickerField(
-                                    label: 'Expiry Date'.tr,
-                                    value: _policyExpiry == null
-                                        ? null
-                                        : Fmt.date(_policyExpiry!),
-                                    placeholder: 'Select'.tr,
-                                    icon: Icons.event_rounded,
-                                    onTap: () async {
-                                      final now = DateTime.now();
-                                      final picked = await showDatePicker(
-                                        context: context,
-                                        initialDate: _policyExpiry ?? now,
-                                        firstDate: now.subtract(
-                                          const Duration(days: 365),
-                                        ),
-                                        lastDate: now.add(
-                                          const Duration(days: 365 * 5),
-                                        ),
-                                      );
-                                      if (picked != null) {
-                                        setState(() => _policyExpiry = picked);
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: Gap.lg),
-                            GField(
-                              label: 'Address'.tr,
-                              hint: '12, MG Road, Bengaluru'.tr,
-                              controller: _address,
-                              textCapitalization: TextCapitalization.sentences,
-                            ),
-                            const SizedBox(height: Gap.lg),
-                            GField(
-                              label: 'GSTN',
-                              hint: '29ABCDE1234F1Z5',
-                              controller: _gstin,
-                              textCapitalization: TextCapitalization.characters,
-                            ),
-                          ],
-                        ),
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
-            ],
-          ),
+        _Band(
+          label: 'Customer Details'.tr,
+          blurb: 'Who is bringing it in'.tr,
+          icon: Icons.person_rounded,
+          tone: GTone.success,
+          action: 'Contacts'.tr,
+          actionIcon: Icons.person_add_alt_rounded,
+          onAction: _pickFromCustomers,
         ),
-        GBottomBar(
-          child: _StepNav(
-            onBack: () => _goTo(0),
-            onNext: _detailsValid ? () => _goTo(2) : null,
+        const SizedBox(height: Gap.sm),
+        const _PrintHint(printed: true),
+        const SizedBox(height: Gap.md),
+        GField(
+          hint: 'Search customer, phone or vehicle no.'.tr,
+          controller: _find,
+          textCapitalization: TextCapitalization.none,
+          textInputAction: TextInputAction.search,
+          prefix: Icon(Icons.search_rounded, size: 19, color: p.inkMuted),
+          suffix: query.isEmpty
+              ? null
+              : Pressable(
+                  onTap: () => setState(_find.clear),
+                  scale: 0.85,
+                  child: Icon(Icons.close_rounded, size: 18, color: p.inkFaint),
+                ),
+          onChanged: (_) => setState(() {}),
+        ),
+        if (query.length >= 2) ...[
+          const SizedBox(height: Gap.sm),
+          Entrance(
+            child: IntakeResults(
+              data: ref.read(adminProvider),
+              query: query,
+              onVehicle: (v) => _pickVehicle(v.regNo),
+              onCustomer: _pickCustomer,
+              onPlate: _pickVehicle,
+            ),
           ),
+        ],
+        const SizedBox(height: Gap.lg),
+        // Everything the customer typed, whole and first.
+        if (_booking != null) ...[
+          _BookedCard(booking: _booking!, onContinue: () => _goTo(1)),
+          const SizedBox(height: Gap.lg),
+        ],
+        GField(
+          label: 'Customer Name *'.tr,
+          hint: 'Rahul Sharma'.tr,
+          controller: _name,
+          textCapitalization: TextCapitalization.words,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: Gap.lg),
+        GField(
+          label: 'Contact No *'.tr,
+          hint: '9876543210',
+          controller: _phone,
+          keyboardType: TextInputType.phone,
+          textCapitalization: TextCapitalization.none,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(10),
+          ],
+          onChanged: (_) {
+            _applyCustomerByPhone();
+            setState(() {});
+          },
+          suffix: _matchedCustomer
+              ? Icon(Icons.check_circle_rounded, size: 18, color: p.success)
+              : null,
+        ),
+        const SizedBox(height: Gap.lg),
+        GField(
+          label: 'Email (optional)'.tr,
+          hint: 'xyz@gmail.com',
+          controller: _email,
+          keyboardType: TextInputType.emailAddress,
+          textCapitalization: TextCapitalization.none,
+        ),
+        const SizedBox(height: Gap.lg),
+        GField(
+          label: 'Address (optional)'.tr,
+          hint: '12, MG Road, Bengaluru'.tr,
+          controller: _address,
+          maxLines: 2,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        const SizedBox(height: Gap.lg),
+        GField(
+          label: 'Customer GSTIN (optional)'.tr,
+          hint: '29ABCDE1234F1Z5',
+          controller: _gstin,
+          textCapitalization: TextCapitalization.characters,
         ),
       ],
+      bar: _StepNav(
+        ready: _customerMissing == null,
+        onNext: () => _next(0, _customerMissing),
+      ),
     );
   }
 
@@ -1231,8 +915,10 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
       _name.text = person.name;
       _phone.text = person.phone;
       if (person.email.isNotEmpty) _email.text = person.email;
-      _matchedCustomer = saved.containsKey(person.phone);
     });
+    // Through the number, so a saved customer brings their address, GSTIN
+    // and vehicles too — not just the three fields the picker carries.
+    _applyCustomerByPhone();
   }
 
   /// Why the list came back empty, and what can be done about it.
@@ -1257,6 +943,527 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
       case ContactsAccess.unsupported:
         GFeedback.info(context, 'No saved customers yet'.tr);
     }
+  }
+
+  // --- 2 · vehicle --------------------------------------------------------
+
+  Widget _vehicleStep() {
+    final p = context.c;
+    final data = ref.read(adminProvider);
+    final owner = data.customerById(_ownerId);
+    final theirs = owner == null
+        ? const <Vehicle>[]
+        : data.vehiclesOf(owner.id);
+    final plateTyped = _reg.text.trim();
+
+    return _stepFrame(
+      children: [
+        _Band(
+          label: 'Vehicle Details'.tr,
+          blurb: 'What came in'.tr,
+          icon: Icons.directions_car_filled_rounded,
+          tone: GTone.accent,
+        ),
+        const SizedBox(height: Gap.sm),
+        const _PrintHint(
+          printed: true,
+          what: 'Make year, brand and model are printed on the invoice',
+        ),
+        const SizedBox(height: Gap.md),
+        // Everything the customer typed, whole and first. The fields below
+        // hold it too, but spread down a long form.
+        if (_booking != null) ...[
+          _BookedCard(booking: _booking!),
+          const SizedBox(height: Gap.md),
+        ],
+
+        // A returning customer's cars, one tap each — most of them have one
+        // or two, and the counter should not be asked to spell a plate the
+        // workshop already knows.
+        if (theirs.isNotEmpty) ...[
+          Text(
+            'ON RECORD FOR {0}'.trf([owner!.name.toUpperCase()]),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.over.c(p.inkFaint),
+          ),
+          const SizedBox(height: Gap.sm),
+          Wrap(
+            spacing: Gap.sm,
+            runSpacing: Gap.sm,
+            children: [
+              for (final v in theirs)
+                _Choice(
+                  label: [
+                    Fmt.plate(v.regNo),
+                    v.model,
+                  ].where((e) => e.trim().isNotEmpty).join(' · '),
+                  icon: Icons.directions_car_filled_rounded,
+                  selected:
+                      _matchedVehicle &&
+                      data.vehicleByReg(plateTyped)?.id == v.id,
+                  onTap: () => _applyLookup(reg: v.regNo),
+                ),
+            ],
+          ),
+          const SizedBox(height: Gap.lg),
+        ],
+
+        GField(
+          // Optional only while the vehicle is declared to have no plate;
+          // the moment one is typed it is the card's identity again.
+          label: _noPlate && plateTyped.isEmpty
+              ? 'Vehicle Number'.tr
+              : 'Vehicle Number *'.tr,
+          hint: _noPlate
+              ? 'Found one on the chassis? Type it here'.tr
+              : 'RJ14CX4455',
+          controller: _reg,
+          textCapitalization: TextCapitalization.characters,
+          textInputAction: TextInputAction.search,
+          prefix: const _IndBadge(),
+          suffix: Pressable(
+            // Live whenever there is something to look up. Gating this on
+            // the toggle meant a counter who flipped it by mistake had to
+            // find the toggle again before they could search at all.
+            onTap: plateTyped.isEmpty ? null : _applyLookup,
+            scale: 0.92,
+            child: Opacity(
+              opacity: plateTyped.isEmpty ? 0.45 : 1,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Gap.md,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: p.accent,
+                  borderRadius: R.all(R.pill),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.search_rounded, size: 15, color: p.onAccent),
+                    const SizedBox(width: 4),
+                    Text('Search'.tr, style: AppType.labelM.c(p.onAccent)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Typing a plate is itself the statement that there is one, so
+          // the toggle gives way rather than fighting it.
+          onChanged: (v) => setState(() {
+            _searched = false;
+            if (v.trim().isNotEmpty) _noPlate = false;
+          }),
+          onSubmitted: (_) => _applyLookup(),
+        ),
+        const SizedBox(height: Gap.sm),
+        _NoPlateRow(
+          value: _noPlate,
+          onChanged: (v) => setState(() {
+            _noPlate = v;
+            _searched = false;
+            if (v) {
+              _reg.clear();
+              _matchedVehicle = false;
+            }
+          }),
+        ),
+        if (_searched && !_matchedVehicle && _booking == null) ...[
+          const SizedBox(height: Gap.md),
+          Entrance(child: _NewVehicleNote(noPlate: _noPlate)),
+        ],
+        const SizedBox(height: Gap.lg),
+
+        // The vehicle as it currently reads, above the fields that spell it
+        // out. It is the fastest check there is that the counter is opening
+        // a card on the right thing: the picture redraws on every pick
+        // below, so a mis-tapped model or body style is seen rather than
+        // discovered at handover.
+        GVehicleCard(
+          plate: Fmt.plate(plateTyped),
+          title: [
+            _brand.text,
+            _model.text,
+            _variant.text,
+          ].where((e) => e.trim().isNotEmpty).join(' '),
+          shape: _shape,
+          photo: VehicleMedia.photoFor(_brand.text, _model.text, _shape),
+          logo: VehicleMedia.logoFor(_brand.text),
+          subtitle: [
+            _shape.label,
+            _fuel.label,
+            if (_transmission != null) _transmission!.label,
+            if (_year != null && _year! > 0) '$_year',
+          ].join('  •  '),
+          badge: _matchedVehicle
+              ? GPill(label: 'On record'.tr, tone: GTone.success, compact: true)
+              : null,
+        ),
+        const SizedBox(height: Gap.lg),
+        GPickerField(
+          label: 'Search make, model or variant'.tr,
+          value: _brand.text.isEmpty
+              ? null
+              : [
+                  _brand.text,
+                  _model.text,
+                  _variant.text,
+                ].where((e) => e.isNotEmpty).join(' '),
+          placeholder: 'Search the catalogue'.tr,
+          leadingIcon: Icons.search_rounded,
+          onTap: _pickMake,
+        ),
+        const SizedBox(height: Gap.lg),
+        Text('VEHICLE TYPE'.tr, style: AppType.over.c(p.inkFaint)),
+        const SizedBox(height: Gap.sm),
+        Row(
+          children: [
+            for (final shape in VehicleShape.values) ...[
+              Expanded(
+                child: VehicleShapeChip(
+                  shape: shape,
+                  selected: _shape == shape,
+                  onTap: () => setState(() => _shape = shape),
+                ),
+              ),
+              if (shape != VehicleShape.values.last)
+                const SizedBox(width: Gap.sm),
+            ],
+          ],
+        ),
+        const SizedBox(height: Gap.lg),
+        // Two to a row: three pickers across a 360dp phone left each one
+        // too narrow to show "Maruti Suzuki" without an ellipsis.
+        Row(
+          children: [
+            Expanded(
+              child: GPickerField(
+                label: 'Make Year *'.tr,
+                value: _year == null || _year! <= 0 ? null : '$_year',
+                placeholder: 'Select'.tr,
+                icon: Icons.calendar_month_rounded,
+                onTap: _pickYear,
+              ),
+            ),
+            const SizedBox(width: Gap.sm),
+            Expanded(
+              child: GPickerField(
+                label: 'Brand *'.tr,
+                value: _brand.text.isEmpty ? null : _brand.text,
+                placeholder: 'Select'.tr,
+                onTap: _pickMake,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.lg),
+        Row(
+          children: [
+            Expanded(
+              child: GPickerField(
+                label: 'Model *'.tr,
+                value: _model.text.isEmpty ? null : _model.text,
+                placeholder: 'Select'.tr,
+                onTap: _brand.text.isEmpty ? null : _pickModel,
+              ),
+            ),
+            const SizedBox(width: Gap.sm),
+            Expanded(
+              child: GPickerField(
+                label: 'Variant'.tr,
+                value: _variant.text.isEmpty ? null : _variant.text,
+                placeholder: 'Select'.tr,
+                onTap: _model.text.isEmpty ? null : _pickVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.xl),
+        Text('FUEL'.tr, style: AppType.over.c(p.inkFaint)),
+        const SizedBox(height: Gap.sm),
+        Wrap(
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
+          children: [
+            for (final f in FuelType.values)
+              _Choice(
+                label: f.label,
+                selected: _fuel == f,
+                onTap: () => setState(() => _fuel = f),
+              ),
+          ],
+        ),
+        const SizedBox(height: Gap.lg),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: GField(
+                label: 'Kilometers'.tr,
+                hint: '45000',
+                controller: _km,
+                keyboardType: TextInputType.number,
+                textCapitalization: TextCapitalization.none,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              ),
+            ),
+            const SizedBox(width: Gap.lg),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      // Flexible, because at three digits the reading and
+                      // its label together are wider than half a narrow
+                      // phone.
+                      Flexible(
+                        child: Text(
+                          'Fuel Level'.tr,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.labelM.c(p.inkSoft),
+                        ),
+                      ),
+                      const SizedBox(width: Gap.sm),
+                      Text(
+                        '$_fuelLevel %',
+                        style: AppType.money.s(14).c(p.accentInk),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _fuelLevel.toDouble(),
+                    max: 100,
+                    divisions: 20,
+                    onChanged: (v) => setState(() => _fuelLevel = v.round()),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.lg),
+        Text('GEARBOX'.tr, style: AppType.over.c(p.inkFaint)),
+        const SizedBox(height: Gap.sm),
+        Wrap(
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
+          children: [
+            for (final t in Transmission.values)
+              _Choice(
+                label: t.label,
+                selected: _transmission == t,
+                // A second tap takes it back to "not recorded", which is a
+                // real answer for a car nobody has looked at yet.
+                onTap: () => setState(
+                  () => _transmission = _transmission == t ? null : t,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: Gap.xxl),
+        _Band(
+          label: 'Vehicle Photos'.tr,
+          blurb: 'The condition it came in'.tr,
+          icon: Icons.photo_camera_rounded,
+          tone: GTone.info,
+          action: _photos.isEmpty ? 'Add'.tr : 'Add more'.tr,
+          actionIcon: Icons.add_a_photo_rounded,
+          onAction: _pickPhotos,
+        ),
+        const SizedBox(height: Gap.md),
+        _PhotoStrip(
+          paths: _photos,
+          busy: _pickingPhotos,
+          onAdd: _pickPhotos,
+          onRemove: (path) => setState(() => _photos.remove(path)),
+        ),
+        const SizedBox(height: Gap.xl),
+        _insuranceSection(),
+      ],
+      bar: _StepNav(
+        onBack: () => _goTo(0),
+        ready: _vehicleMissing == null,
+        onNext: () => _next(1, _vehicleMissing),
+      ),
+    );
+  }
+
+  /// The policy, folded away: most cards are not claim jobs, and six empty
+  /// fields at the foot of every intake is six fields to scroll past.
+  Widget _insuranceSection() {
+    final p = context.c;
+    final has =
+        _insurer.text.trim().isNotEmpty ||
+        _policy.text.trim().isNotEmpty ||
+        _policyExpiry != null;
+    return Column(
+      children: [
+        Pressable(
+          onTap: () => setState(() => _insuranceOpen = !_insuranceOpen),
+          scale: 0.98,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Gap.md,
+              vertical: Gap.md,
+            ),
+            decoration: BoxDecoration(
+              color: p.surfaceAlt,
+              borderRadius: R.all(R.md),
+              border: Border.all(color: p.line),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.shield_rounded, size: 18, color: p.info),
+                const SizedBox(width: Gap.sm),
+                Expanded(
+                  child: Text(
+                    'Add Insurance Policy Details (optional)'.tr,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.labelL.c(p.ink),
+                  ),
+                ),
+                // Said even while folded, so a policy carried in from the
+                // record is not mistaken for no policy at all.
+                if (has && !_insuranceOpen) ...[
+                  GPill(label: 'Added'.tr, tone: GTone.success, compact: true),
+                  const SizedBox(width: Gap.xs),
+                ],
+                AnimatedRotation(
+                  turns: _insuranceOpen ? 0.5 : 0,
+                  duration: Motion.fast,
+                  child: Icon(
+                    Icons.expand_more_rounded,
+                    size: 20,
+                    color: p.inkMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: Motion.base,
+          curve: Motion.emphasized,
+          child: _insuranceOpen
+              ? Padding(
+                  padding: const EdgeInsets.only(top: Gap.lg),
+                  child: Column(
+                    children: [
+                      const _PrintHint(printed: true),
+                      const SizedBox(height: Gap.md),
+                      GField(
+                        label: 'Insurer Name'.tr,
+                        hint: 'ICICI Lombard'.tr,
+                        controller: _insurer,
+                        textCapitalization: TextCapitalization.words,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: Gap.lg),
+                      GField(
+                        label: 'Policy No'.tr,
+                        hint: 'POL1234567',
+                        controller: _policy,
+                        textCapitalization: TextCapitalization.characters,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: Gap.lg),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GPickerField(
+                              label: 'Policy Date'.tr,
+                              value: _policyFrom == null
+                                  ? null
+                                  : Fmt.date(_policyFrom!),
+                              placeholder: 'Select'.tr,
+                              icon: Icons.event_rounded,
+                              onTap: () => _pickPolicyDate(expiry: false),
+                            ),
+                          ),
+                          const SizedBox(width: Gap.sm),
+                          Expanded(
+                            child: GPickerField(
+                              label: 'Expiry Date'.tr,
+                              value: _policyExpiry == null
+                                  ? null
+                                  : Fmt.date(_policyExpiry!),
+                              placeholder: 'Select'.tr,
+                              icon: Icons.event_rounded,
+                              onTap: () => _pickPolicyDate(expiry: true),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Gap.lg),
+                      GField(
+                        label: 'Insurer Address'.tr,
+                        hint: 'Branch office address'.tr,
+                        controller: _insurerAddress,
+                        maxLines: 2,
+                        textCapitalization: TextCapitalization.sentences,
+                      ),
+                      const SizedBox(height: Gap.lg),
+                      GField(
+                        label: 'Insurer GSTIN'.tr,
+                        hint: '27AAACI7904G1ZN',
+                        controller: _insurerGstin,
+                        textCapitalization: TextCapitalization.characters,
+                      ),
+                    ],
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+      ],
+    );
+  }
+
+  /// A policy runs a year, so the start is looked for in the past and the
+  /// expiry in the future — each picker opens where its answer usually is.
+  Future<void> _pickPolicyDate({required bool expiry}) async {
+    final now = DateTime.now();
+    final current = expiry ? _policyExpiry : _policyFrom;
+    final first = expiry
+        ? now.subtract(const Duration(days: 365))
+        : now.subtract(const Duration(days: 365 * 5));
+    final last = expiry
+        ? now.add(const Duration(days: 365 * 5))
+        : now.add(const Duration(days: 365));
+    var initial = current ?? now;
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (expiry) {
+        _policyExpiry = picked;
+      } else {
+        _policyFrom = picked;
+        // A start date with no expiry is almost always a one-year policy;
+        // offering that saves the second picker on most claim jobs.
+        _policyExpiry ??= DateTime(
+          picked.year + 1,
+          picked.month,
+          picked.day,
+        ).subtract(const Duration(days: 1));
+      }
+    });
+  }
+
+  Future<void> _pickYear() async {
+    final picked = await pickMakeYear(context, selected: _year);
+    if (picked == null || !mounted) return;
+    setState(() => _year = picked);
   }
 
   /// Camera or gallery, asked before either opens. Nothing is written to the
@@ -1359,157 +1566,150 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     setState(() => _variant.text = picked);
   }
 
-  // --- step 3 -------------------------------------------------------------
+  // --- 3 · damage ---------------------------------------------------------
 
-  Widget _handoverStep() {
+  /// What was already wrong with the vehicle when it came in.
+  ///
+  /// Shown on the step itself rather than behind a button: the old slab
+  /// said "Dent Marks 3" and nothing else, so checking what had been marked
+  /// meant opening the drawing again. Here the marks are read as sentences
+  /// — "Rear Right Door — Dent" — which is how they get read back to the
+  /// customer before they sign.
+  Widget _damageStep() {
     final p = context.c;
-    return Column(
+    return _stepFrame(
       children: [
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              Gap.page,
-              Gap.md,
-              Gap.page,
-              Gap.xxl,
-            ),
-            children: [
-              _OwnerStrip(
-                name: _name.text,
-                vehicle: '${_brand.text} ${_model.text}'.trim(),
-                phone: _phone.text,
-                history: ref.read(adminProvider).vehicleByReg(_reg.text)?.id,
-              ),
-              const SizedBox(height: Gap.xl),
-              Text('Odometer Reading'.tr, style: AppType.h2.c(p.ink)),
-              const SizedBox(height: Gap.md),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: GField(
-                      label: 'KM Reading *'.tr,
-                      hint: '45000',
-                      controller: _km,
-                      keyboardType: TextInputType.number,
-                      textCapitalization: TextCapitalization.none,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                  const SizedBox(width: Gap.lg),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            // Flexible, because at three digits the reading
-                            // and its label together are wider than half a
-                            // narrow phone.
-                            Flexible(
-                              child: Text(
-                                'Fuel Level'.tr,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppType.labelM.c(p.inkSoft),
-                              ),
-                            ),
-                            const SizedBox(width: Gap.sm),
-                            Text(
-                              '$_fuelLevel %',
-                              style: AppType.money.s(14).c(p.accentInk),
-                            ),
-                          ],
-                        ),
-                        Slider(
-                          value: _fuelLevel.toDouble(),
-                          max: 100,
-                          divisions: 20,
-                          onChanged: (v) =>
-                              setState(() => _fuelLevel = v.round()),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Gap.lg),
-              Container(
-                padding: const EdgeInsets.all(Gap.lg),
-                decoration: BoxDecoration(
-                  color: p.surfaceAlt,
-                  borderRadius: R.all(R.lg),
-                  border: Border.all(color: p.line),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'Vehicle Information and Issues'.tr,
-                      style: AppType.labelL.c(p.ink),
-                    ),
-                    const SizedBox(height: Gap.md),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _Slab(
-                            label: 'Vehicle Accessories'.tr,
-                            count: _accessories.length,
-                            tint: p.accent,
-                            onTap: _editAccessories,
-                          ),
-                        ),
-                        const SizedBox(width: Gap.sm),
-                        Expanded(
-                          child: _Slab(
-                            label: 'Customer Voice'.tr,
-                            count: _voices.length,
-                            tint: p.info,
-                            onTap: _editVoices,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: Gap.sm),
-                    _Slab(
-                      label: 'Dent Marks'.tr,
-                      count: _dents.length,
-                      tint: p.success,
-                      onTap: _editDents,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: Gap.xl),
-              _Listing(
-                title: 'Vehicle Inventory List'.tr,
-                tint: p.accent,
-                values: _accessories,
-                empty: 'Nothing recorded as coming in with the vehicle.',
-              ),
-              const SizedBox(height: Gap.lg),
-              _Listing(
-                title: 'Customer Voice'.tr,
-                tint: p.info,
-                values: _voices,
-                empty: 'Nothing the customer reported has been ticked.',
-              ),
-            ],
-          ),
+        _OwnerStrip(
+          name: _name.text,
+          vehicle: '${_brand.text} ${_model.text}'.trim(),
+          phone: _phone.text,
+          history: ref.read(adminProvider).vehicleByReg(_reg.text)?.id,
         ),
-        GBottomBar(
-          child: _StepNav(
-            onBack: () => _goTo(1),
-            onNext: () {
-              if (!_kmEntered) {
-                GFeedback.error(context, 'Enter the KM reading first'.tr);
-                return;
-              }
-              _goTo(3);
-            },
+        const SizedBox(height: Gap.xl),
+        _Band(
+          label: 'Dent Marks / Damage'.tr,
+          blurb: 'What is already wrong with it'.tr,
+          icon: Icons.car_crash_rounded,
+          tone: GTone.danger,
+        ),
+        const SizedBox(height: Gap.sm),
+        const _PrintHint(printed: false, optional: true),
+        const SizedBox(height: Gap.md),
+        const DamageLegend(),
+        const SizedBox(height: Gap.md),
+        DamageAreaMap(
+          marks: _dents,
+          shape: _shape,
+          onTap: _editDents,
+          onArea: (a) => _editDents(area: a),
+        ),
+        const SizedBox(height: Gap.md),
+        GButton.accent(
+          label: _dents.isEmpty
+              ? 'Mark damage on the car'.tr
+              : 'Mark more damage'.tr,
+          icon: Icons.draw_rounded,
+          onPressed: _editDents,
+        ),
+        const SizedBox(height: Gap.xl),
+        if (_dents.isEmpty)
+          Text(
+            'Nothing marked. Scratches, dents, broken glass and rust found at handover go here — by area: front, driver, passenger, rear, roof, interior, underbody.'
+                .tr,
+            style: AppType.bodyS.c(p.inkFaint),
+          )
+        else ...[
+          Text(
+            Tr.plural(_dents.length, '{0} MARK', '{0} MARKS'),
+            style: AppType.over.c(p.inkFaint),
           ),
+          const SizedBox(height: Gap.sm),
+          DamageMarkList(
+            marks: _dents,
+            onRemove: (m) => setState(() => _dents.remove(m)),
+          ),
+        ],
+      ],
+      bar: _StepNav(
+        onBack: () => _goTo(1),
+        onNext: () => _goTo(3),
+        nextLabel: _dents.isEmpty ? 'Skip'.tr : 'Next'.tr,
+      ),
+    );
+  }
+
+  Future<void> _editDents({VehicleArea? area}) async {
+    final result = await Navigator.of(context).push<List<DentMark>>(
+      MaterialPageRoute(
+        builder: (_) =>
+            DraftDentsPage(marks: _dents, shape: _shape, initialArea: area),
+      ),
+    );
+    if (result == null) return;
+    setState(() {
+      _dents
+        ..clear()
+        ..addAll(result);
+    });
+  }
+
+  // --- 4 · voice and accessories ------------------------------------------
+
+  Widget _voiceStep() {
+    final p = context.c;
+    final empty = _voices.isEmpty && _accessories.isEmpty;
+    return _stepFrame(
+      children: [
+        _Band(
+          label: 'Customer Voice'.tr,
+          blurb: 'What the customer says is wrong'.tr,
+          icon: Icons.record_voice_over_rounded,
+          tone: GTone.info,
+          action: 'Skip'.tr,
+          actionIcon: Icons.redo_rounded,
+          onAction: () => _goTo(4),
+        ),
+        const SizedBox(height: Gap.sm),
+        const _PrintHint(printed: false, optional: true),
+        const SizedBox(height: Gap.md),
+        QuickList(
+          values: _voices,
+          tint: p.info,
+          hint: 'Type a complaint and add'.tr,
+          empty: 'Nothing the customer reported yet.'.tr,
+          onAdd: (v) => setState(() => _voices.add(v)),
+          onRemove: (v) => setState(() => _voices.remove(v)),
+          onMore: _editVoices,
+        ),
+        const SizedBox(height: Gap.xxl),
+        _Band(
+          label: 'Vehicle Accessories'.tr,
+          blurb: 'What came in with the vehicle'.tr,
+          icon: Icons.inventory_2_rounded,
+          tone: GTone.accent,
+          action: 'Skip'.tr,
+          actionIcon: Icons.redo_rounded,
+          onAction: () => _goTo(4),
+        ),
+        const SizedBox(height: Gap.sm),
+        const _PrintHint(printed: false, optional: true),
+        const SizedBox(height: Gap.md),
+        QuickList(
+          values: _accessories,
+          tint: p.accent,
+          hint: 'Type an item and add'.tr,
+          empty: 'Nothing recorded as coming in with the vehicle.'.tr,
+          onAdd: (v) => setState(() => _accessories.add(v)),
+          onRemove: (v) => setState(() => _accessories.remove(v)),
+          onMore: _editAccessories,
+          moreLabel: '+ Enter details'.tr,
         ),
       ],
+      bar: _StepNav(
+        onBack: () => _goTo(2),
+        onNext: () => _goTo(4),
+        nextLabel: empty ? 'Skip'.tr : 'Next'.tr,
+      ),
     );
   }
 
@@ -1521,7 +1721,7 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
           subtitle:
               'Tick what the customer reported. These print on the mechanic copy in the order you add them.'
                   .tr,
-          emptyHint: 'Nothing recorded yet — tap a complaint to add it.',
+          emptyHint: 'Nothing recorded yet — tap a complaint to add it.'.tr,
           icon: Icons.record_voice_over_rounded,
           presets: Seed.voices,
           selected: _voices,
@@ -1543,7 +1743,7 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
           subtitle:
               'What came in with the vehicle. Ticking it here is what settles an argument at handover.'
                   .tr,
-          emptyHint: 'Nothing listed yet — tap an item to add it.',
+          emptyHint: 'Nothing listed yet — tap an item to add it.'.tr,
           icon: Icons.inventory_2_rounded,
           presets: Seed.accessories,
           selected: _accessories,
@@ -1557,25 +1757,13 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     );
   }
 
-  Future<void> _editDents() async {
-    final result = await Navigator.of(context).push<List<DentMark>>(
-      MaterialPageRoute(
-        builder: (_) => DraftDentsPage(marks: _dents, shape: _shape),
-      ),
-    );
-    if (result == null) return;
-    setState(() {
-      _dents
-        ..clear()
-        ..addAll(result);
-    });
-  }
-
-  // --- step 4 -------------------------------------------------------------
+  // --- 5 · services -------------------------------------------------------
 
   double get _quoted => double.tryParse(_estimate.text.trim()) ?? 0;
 
-  double get _advanceTaken => double.tryParse(_advance.text.trim()) ?? 0;
+  /// Money down — only once the box says some was taken.
+  double get _advanceTaken =>
+      _advanceOn ? (double.tryParse(_advance.text.trim()) ?? 0) : 0;
 
   /// How the quote sits against the lines, said in words instead of left for
   /// the counter to work out.
@@ -1587,12 +1775,12 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     final lines = _itemsTotal;
     // Short on purpose: a GField helper is one line and ellipsises the rest,
     // so a note that does not fit is a note nobody reads.
-    if (lines <= 0) return 'Becomes the card’s one labour line.';
+    if (lines <= 0) return 'Becomes the card’s one labour line.'.tr;
     final diff = _quoted - lines;
-    if (diff.abs() < 0.01) return 'Matches the lines above.';
+    if (diff.abs() < 0.01) return 'Matches the lines above.'.tr;
     return diff > 0
-        ? '${Fmt.money2(diff)} above the lines.'
-        : '${Fmt.money2(-diff)} under the lines.';
+        ? '{0} above the lines.'.trf([Fmt.money2(diff)])
+        : '{0} under the lines.'.trf([Fmt.money2(-diff)]);
   }
 
   /// What the card costs and who picks it up.
@@ -1600,162 +1788,77 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
   /// Laid out as a bill rather than as a form. The money stays pinned at the
   /// top where it can be read out across the counter, and every figure below
   /// it appears exactly once, so there is nothing to reconcile in your head.
-  Widget _billStep() {
+  Widget _servicesStep() {
     final staff = ref.watch(staffProvider);
     final assigned = _mechanics
         .map((id) => staff.firstWhereOrNull((s) => s.id == id))
         .whereType<Staff>()
         .toList();
 
-    return Column(
+    return _stepFrame(
+      // Pinned, not scrolled. "How much?" gets asked across the counter
+      // while the rest of this screen is still being filled in, and an
+      // answer you have to scroll for is not an answer.
+      pinned: Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, 0),
+        child: AnimatedBuilder(
+          // Only the masthead redraws as the money fields are typed into.
+          // Rebuilding the step would rebuild the list under your thumb.
+          animation: Listenable.merge([_estimate, _advance]),
+          builder: (context, _) =>
+              _BillMasthead(quoted: _quoted, advance: _advanceTaken),
+        ),
+      ),
       children: [
-        // Pinned, not scrolled. "How much?" gets asked across the counter
-        // while the rest of this screen is still being filled in, and an
-        // answer you have to scroll for is not an answer.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, 0),
-          child: AnimatedBuilder(
-            // Only the masthead redraws as the money fields are typed into.
-            // Rebuilding the step would rebuild the list under your thumb.
-            animation: Listenable.merge([_estimate, _advance]),
-            builder: (context, _) =>
-                _BillMasthead(quoted: _quoted, advance: _advanceTaken),
-          ),
+        _Band(
+          label: 'Add Services'.tr,
+          blurb: 'Spares, jobs and the mechanic'.tr,
+          icon: Icons.build_rounded,
+          tone: GTone.accent,
         ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              Gap.page,
-              Gap.lg,
-              Gap.page,
-              Gap.xxl,
-            ),
-            children: [
-              _BillSheet(
-                items: _items,
-                onAdd: _addLines,
-                onRemove: (li) => setState(() {
-                  _items.remove(li);
-                  _estimate.text = _itemsTotal.toStringAsFixed(2);
-                }),
-              ),
-              SizedBox(height: Gap.lg),
-              GField(
-                label: 'Quoted to customer *'.tr,
-                hint: '0.00',
-                controller: _estimate,
-                keyboardType: TextInputType.number,
-                textCapitalization: TextCapitalization.none,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                ],
-                helper: _quoteNote,
-                // The note under the field is the whole point of it, so it
-                // has to keep up with what is being typed.
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: Gap.xl),
-              _Band(
-                label: 'On the floor'.tr,
-                blurb: 'Who is doing the work'.tr,
-                icon: Icons.engineering_rounded,
-                tone: GTone.accent,
-              ),
-              const SizedBox(height: Gap.md),
-              _MechanicRow(
-                assigned: assigned,
-                // Inactive staff are off the roll for new work (see the
-                // Staff screen); they stay on cards they are already on.
-                onAdd: () => _pickMechanics(
-                  staff.where((s) => s.active).toList(),
-                ),
-                onRemove: (s) => setState(() => _mechanics.remove(s.id)),
-              ),
-              const SizedBox(height: Gap.xl),
-              _Band(
-                label: 'Promise and money down'.tr,
-                blurb: 'What the customer was told at the counter'.tr,
-                icon: Icons.event_available_rounded,
-                tone: GTone.info,
-              ),
-              const SizedBox(height: Gap.md),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // The promise is always days away, never years, so the
-                  // year only crowded the date out of its own field. The
-                  // wider flex is what keeps the time on screen beside it.
-                  Expanded(
-                    flex: 3,
-                    child: GPickerField(
-                      label: 'Promised delivery'.tr,
-                      value: Fmt.dateTime(_promised),
-                      placeholder: 'Set'.tr,
-                      icon: Icons.event_rounded,
-                      onTap: _pickPromised,
-                    ),
-                  ),
-                  const SizedBox(width: Gap.md),
-                  Expanded(
-                    flex: 2,
-                    child: GField(
-                      label: 'Advance taken'.tr,
-                      hint: '0',
-                      controller: _advance,
-                      keyboardType: TextInputType.number,
-                      textCapitalization: TextCapitalization.none,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Gap.xl),
-              _Band(
-                label: 'Notes for the floor'.tr,
-                blurb: 'Read before the spanner comes out'.tr,
-                icon: Icons.sticky_note_2_rounded,
-                tone: GTone.warning,
-              ),
-              const SizedBox(height: Gap.md),
-              GField(
-                hint: 'Customer is waiting — wash before delivery…'.tr,
-                controller: _notes,
-                maxLines: 3,
-                textCapitalization: TextCapitalization.sentences,
-              ),
-            ],
-          ),
+        const SizedBox(height: Gap.sm),
+        const _PrintHint(printed: true),
+        const SizedBox(height: Gap.md),
+        _BillSheet(
+          items: _items,
+          onAdd: _addLines,
+          onRemove: (li) => setState(() {
+            _items.remove(li);
+            _estimate.text = _itemsTotal.toStringAsFixed(2);
+          }),
         ),
-        GBottomBar(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Beside Create rather than buried in the form: this is
-              // something that happens when you press the button, not a
-              // field you fill in.
-              _SmsRow(
-                value: _sms,
-                phone: _phone.text.trim(),
-                onChanged: (v) => setState(() => _sms = v),
-              ),
-              const SizedBox(height: Gap.md),
-              AnimatedBuilder(
-                animation: Listenable.merge([_estimate, _advance]),
-                // The figure the customer is about to be quoted, on the
-                // button that commits to it.
-                builder: (context, _) => _StepNav(
-                  onBack: () => _goTo(2),
-                  onNext: _create,
-                  nextLabel: 'Open Card  ${Fmt.money(_quoted - _advanceTaken)}',
-                  nextIcon: Icons.check_rounded,
-                ),
-              ),
-            ],
-          ),
+        const SizedBox(height: Gap.lg),
+        GField(
+          label: 'Quoted to customer *'.tr,
+          hint: '0.00',
+          controller: _estimate,
+          keyboardType: TextInputType.number,
+          textCapitalization: TextCapitalization.none,
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+          ],
+          helper: _quoteNote,
+          // The note under the field is the whole point of it, so it has to
+          // keep up with what is being typed.
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: Gap.xl),
+        _Band(
+          label: 'On the floor'.tr,
+          blurb: 'Who is doing the work'.tr,
+          icon: Icons.engineering_rounded,
+          tone: GTone.accent,
+        ),
+        const SizedBox(height: Gap.md),
+        _MechanicRow(
+          assigned: assigned,
+          // Inactive staff are off the roll for new work (see the Staff
+          // screen); they stay on cards they are already on.
+          onAdd: () => _pickMechanics(staff.where((s) => s.active).toList()),
+          onRemove: (s) => setState(() => _mechanics.remove(s.id)),
         ),
       ],
+      bar: _StepNav(onBack: () => _goTo(3), onNext: () => _goTo(5)),
     );
   }
 
@@ -1869,27 +1972,235 @@ class _CreateJobCardPageState extends ConsumerState<CreateJobCardPage> {
     });
   }
 
-  Future<void> _pickPromised() async {
+  // --- 6 · delivery -------------------------------------------------------
+
+  Widget _deliveryStep() {
+    final p = context.c;
+    final bank = ref.read(adminProvider).primaryBank?.title;
+    return _stepFrame(
+      children: [
+        _Band(
+          label: 'Delivery'.tr,
+          blurb: 'What the customer was told at the counter'.tr,
+          icon: Icons.event_available_rounded,
+          tone: GTone.info,
+        ),
+        const SizedBox(height: Gap.md),
+        // Two pickers, not one that runs date-then-time: the time is the
+        // thing most often changed on its own ("make it 6, not 10"), and a
+        // combined picker made that a trip through the calendar first.
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: GPickerField(
+                label: 'Delivery Date'.tr,
+                value: Fmt.date(_promised),
+                placeholder: 'Set'.tr,
+                icon: Icons.event_rounded,
+                onTap: _pickPromisedDate,
+              ),
+            ),
+            const SizedBox(width: Gap.sm),
+            Expanded(
+              flex: 2,
+              child: GPickerField(
+                label: 'Time'.tr,
+                value: Fmt.time(_promised),
+                placeholder: 'Set'.tr,
+                icon: Icons.schedule_rounded,
+                onTap: _pickPromisedTime,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.xl),
+        Container(
+          decoration: BoxDecoration(
+            color: p.surfaceAlt,
+            borderRadius: R.all(R.lg),
+            border: Border.all(
+              color: _advanceOn ? p.success.withValues(alpha: 0.45) : p.line,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CheckboxListTile(
+                value: _advanceOn,
+                onChanged: (v) => setState(() => _advanceOn = v ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                activeColor: p.success,
+                shape: RoundedRectangleBorder(borderRadius: R.all(R.lg)),
+                title: Text('Advance taken'.tr, style: AppType.labelL.c(p.ink)),
+                subtitle: Text(
+                  'Settles against the invoice'.tr,
+                  style: AppType.bodyS.c(p.inkMuted),
+                ),
+              ),
+              AnimatedSize(
+                duration: Motion.base,
+                curve: Motion.emphasized,
+                child: !_advanceOn
+                    ? const SizedBox(width: double.infinity)
+                    : Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          Gap.lg,
+                          0,
+                          Gap.lg,
+                          Gap.lg,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GField(
+                              label: 'Amount *'.tr,
+                              hint: '0',
+                              controller: _advance,
+                              keyboardType: TextInputType.number,
+                              textCapitalization: TextCapitalization.none,
+                              prefix: Text(
+                                '₹',
+                                style: AppType.money.s(15).c(p.inkSoft),
+                              ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'[0-9.]'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: Gap.md),
+                            Wrap(
+                              spacing: Gap.sm,
+                              runSpacing: Gap.sm,
+                              children: [
+                                for (final m in _advanceModes)
+                                  _Choice(
+                                    label: m.label,
+                                    icon: m.icon,
+                                    selected: _advanceMode == m,
+                                    onTap: () =>
+                                        setState(() => _advanceMode = m),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: Gap.sm),
+                            // Where the money lands in the books, so the
+                            // counter knows which drawer — or which account
+                            // — it has to tally against tonight.
+                            Row(
+                              children: [
+                                Icon(
+                                  _advanceMode == PayMode.cash
+                                      ? Icons.payments_rounded
+                                      : Icons.account_balance_rounded,
+                                  size: 14,
+                                  color: p.inkFaint,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    _advanceMode == PayMode.cash
+                                        ? 'Goes to Cash in Hand'.tr
+                                        : 'Goes to {0}'.trf([
+                                            bank ?? 'your bank account'.tr,
+                                          ]),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppType.bodyS.c(p.inkMuted),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Gap.xl),
+        _Band(
+          label: 'Notes for the floor'.tr,
+          blurb: 'Read before the spanner comes out'.tr,
+          icon: Icons.sticky_note_2_rounded,
+          tone: GTone.warning,
+        ),
+        const SizedBox(height: Gap.md),
+        GField(
+          hint: 'Customer is waiting — wash before delivery…'.tr,
+          controller: _notes,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+      ],
+      bar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Beside Create rather than buried in the form: this is something
+          // that happens when you press the button, not a field you fill in.
+          _SmsRow(
+            value: _sms,
+            phone: _phone.text.trim(),
+            onChanged: (v) => setState(() => _sms = v),
+          ),
+          const SizedBox(height: Gap.md),
+          // The money, read out in full on its own line. It used to ride on
+          // the button and was cut to "₹1,5…" — the one figure the counter
+          // reads to the customer before tapping.
+          AnimatedBuilder(
+            animation: Listenable.merge([_estimate, _advance]),
+            builder: (context, _) => _MoneyStrip(
+              quoted: _quoted,
+              advance: _advanceTaken,
+            ),
+          ),
+          const SizedBox(height: Gap.md),
+          _StepNav(
+            onBack: () => _goTo(4),
+            onNext: _create,
+            nextLabel: 'Open Job Card'.tr,
+            nextIcon: Icons.check_rounded,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickPromisedDate() async {
     final now = DateTime.now();
+    final first = now.subtract(const Duration(days: 1));
     final date = await showDatePicker(
       context: context,
-      initialDate: _promised,
-      firstDate: now.subtract(const Duration(days: 1)),
+      initialDate: _promised.isBefore(first) ? now : _promised,
+      firstDate: first,
       lastDate: now.add(const Duration(days: 90)),
     );
     if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_promised),
-    );
-    if (!mounted) return;
     setState(
       () => _promised = DateTime(
         date.year,
         date.month,
         date.day,
-        time?.hour ?? 10,
-        time?.minute ?? 0,
+        _promised.hour,
+        _promised.minute,
+      ),
+    );
+  }
+
+  Future<void> _pickPromisedTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_promised),
+    );
+    if (time == null || !mounted) return;
+    setState(
+      () => _promised = DateTime(
+        _promised.year,
+        _promised.month,
+        _promised.day,
+        time.hour,
+        time.minute,
       ),
     );
   }
@@ -1929,10 +2240,10 @@ class _Intake {
 }
 
 /// The intake masthead: an orange panel with a wave cut out of its foot, and
-/// the four steps laid out underneath it.
+/// the six steps laid out underneath it.
 ///
 /// The stepper is on the canvas rather than on the orange, which is not just
-/// taste. Three of the four nodes are always inactive, and an inactive node
+/// taste. Five of the six nodes are always inactive, and an inactive node
 /// has to be low-contrast to read as inactive — on a saturated panel there is
 /// no low-contrast grey that is still legible, so they would all have to be
 /// white and the thing would stop showing which step you are on.
@@ -1954,12 +2265,23 @@ class _CockpitIntakeHeader extends StatelessWidget
   /// a stepper that hands the counter a half-built card.
   final ValueChanged<int> onStep;
 
-  static const _labels = ['Vehicle', 'Owner', 'Handover', 'Bill'];
+  /// One word each: six nodes share a 320dp track on a 360dp phone, and a
+  /// label that wraps pushes the page under the masthead down a line.
+  static const _labels = [
+    'Customer',
+    'Vehicle',
+    'Damage',
+    'Voice',
+    'Services',
+    'Delivery',
+  ];
   static const _blurbs = [
-    'Look the vehicle up, or start a fresh one',
-    'Confirm who owns it and what it is',
-    'Log the handover and what needs doing',
-    'Price it up and open the card',
+    'Who the card is for',
+    'What came in, and its insurance',
+    'Mark what is already damaged',
+    'What they said, what came with it',
+    'Spares, jobs and who does them',
+    'When it is due back, and money down',
   ];
 
   /// Panel, wave overhang and stepper. Fixed, because a masthead that changes
@@ -1971,6 +2293,15 @@ class _CockpitIntakeHeader extends StatelessWidget
   Widget build(BuildContext context) {
     final p = context.c;
 
+    // The height is fixed (see [preferredSize]), so the copy inside it can
+    // only grow so far with the system font before it runs out of room.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.1,
+      child: _masthead(p),
+    );
+  }
+
+  Widget _masthead(AppPalette p) {
     return Container(
       color: p.canvas,
       child: Column(
@@ -2033,8 +2364,12 @@ class _CockpitIntakeHeader extends StatelessWidget
                                     AnimatedSwitcher(
                                       duration: Motion.fast,
                                       child: Text(
-                                        _blurbs[step.clamp(0, 3)],
-                                        key: ValueKey(step.clamp(0, 3)),
+                                        _blurbs[step.clamp(
+                                              0,
+                                              _blurbs.length - 1,
+                                            )]
+                                            .tr,
+                                        key: ValueKey(step),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         textAlign: TextAlign.center,
@@ -2108,7 +2443,11 @@ class _CockpitIntakeHeader extends StatelessWidget
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.page, Gap.sm, Gap.page, 0),
-            child: _StepTrack(step: step, labels: _labels, onStep: onStep),
+            child: _StepTrack(
+              step: step,
+              labels: [for (final l in _labels) l.tr],
+              onStep: onStep,
+            ),
           ),
         ],
       ),
@@ -2170,7 +2509,15 @@ class _WaveFoot extends CustomClipper<Path> {
   bool shouldReclip(covariant CustomClipper<Path> old) => false;
 }
 
-/// Four numbered nodes and the rails between them.
+/// Six numbered nodes and the rails between them.
+///
+/// Each node owns an equal share of the width and draws its own half-rails,
+/// left and right of the circle. The rails used to be separate flexible
+/// pieces between fixed-width nodes, which worked for four short labels;
+/// with six, the labels alone ate the track and the rails shrank to nothing
+/// on a narrow phone. Equal cells keep the circles evenly spaced whatever
+/// the labels say, and a label too long for its cell scales down instead of
+/// overflowing.
 class _StepTrack extends StatelessWidget {
   const _StepTrack({
     required this.step,
@@ -2184,38 +2531,19 @@ class _StepTrack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.c;
-
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (var i = 0; i < labels.length; i++) ...[
-          // The rail lives between two nodes, and is lit only when the step
-          // it leads *to* has been reached.
-          if (i != 0)
-            Expanded(
-              child: Padding(
-                // Half a node's height, so the rail meets the circles at
-                // their waist rather than at the text below them.
-                padding: const EdgeInsets.only(top: 13),
-                child: AnimatedContainer(
-                  duration: Motion.base,
-                  curve: Motion.enter,
-                  height: 2.5,
-                  decoration: BoxDecoration(
-                    color: i <= step ? p.accent : p.line,
-                    borderRadius: R.all(R.pill),
-                  ),
-                ),
-              ),
+        for (var i = 0; i < labels.length; i++)
+          Expanded(
+            child: _StepNode(
+              index: i,
+              label: labels[i],
+              step: step,
+              last: i == labels.length - 1,
+              onTap: i < step ? () => onStep(i) : null,
             ),
-          _StepNode(
-            index: i,
-            label: labels[i],
-            step: step,
-            onTap: i < step ? () => onStep(i) : null,
           ),
-        ],
       ],
     );
   }
@@ -2226,12 +2554,14 @@ class _StepNode extends StatelessWidget {
     required this.index,
     required this.label,
     required this.step,
+    required this.last,
     required this.onTap,
   });
 
   final int index;
   final String label;
   final int step;
+  final bool last;
   final VoidCallback? onTap;
 
   @override
@@ -2243,6 +2573,19 @@ class _StepNode extends StatelessWidget {
     final fill = done || here ? p.accent : (p.isDark ? p.surfaceAlt : p.line);
     final ink = done || here ? p.onAccent : p.inkMuted;
 
+    // A half-rail is lit once the step it leads *to* has been reached: the
+    // left one when this node is, the right one when the next node is.
+    Widget rail({required bool show, required bool lit}) => Expanded(
+      child: show
+          ? AnimatedContainer(
+              duration: Motion.base,
+              curve: Motion.enter,
+              height: 2.5,
+              color: lit ? p.accent : p.line,
+            )
+          : const SizedBox.shrink(),
+    );
+
     return Pressable(
       onTap: onTap,
       scale: onTap == null ? 1.0 : 0.9,
@@ -2250,305 +2593,59 @@ class _StepNode extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: Motion.base,
-            curve: Motion.enter,
+          SizedBox(
             height: 28,
-            width: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: fill,
-              boxShadow: here
-                  ? [
-                      BoxShadow(
-                        color: p.accent.withValues(alpha: 0.38),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Center(
-              child: done
-                  ? Icon(Icons.check_rounded, size: 16, color: ink)
-                  : Text(
-                      '${index + 1}',
-                      style: AppType.labelM.s(12.5).c(ink).w(FontWeight.w800),
-                    ),
+            child: Row(
+              children: [
+                rail(show: index != 0, lit: index <= step),
+                AnimatedContainer(
+                  duration: Motion.base,
+                  curve: Motion.enter,
+                  height: 28,
+                  width: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: fill,
+                    boxShadow: here
+                        ? [
+                            BoxShadow(
+                              color: p.accent.withValues(alpha: 0.38),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Center(
+                    child: done
+                        ? Icon(Icons.check_rounded, size: 16, color: ink)
+                        : Text(
+                            '${index + 1}',
+                            style: AppType.labelM
+                                .s(12.5)
+                                .c(ink)
+                                .w(FontWeight.w800),
+                          ),
+                  ),
+                ),
+                rail(show: !last, lit: index < step),
+              ],
             ),
           ),
           const SizedBox(height: 5),
-          Text(
-            label,
-            style: AppType.labelS
-                .s(10.5)
-                .c(here ? p.ink : p.inkMuted)
-                .w(here ? FontWeight.w700 : FontWeight.w500),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Centerpiece scanner HUD for step one.
-class _VehicleScannerHUD extends StatelessWidget {
-  const _VehicleScannerHUD({required this.onAddManual});
-
-  final VoidCallback onAddManual;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.c;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Gap.xxl),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Radar pulse ring with vehicle scanner lens
-            SizedBox(
-              height: 120,
-              width: 120,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Outer glowing ambient ring
-                  Container(
-                    height: 114,
-                    width: 114,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          p.accent.withValues(alpha: 0.18),
-                          p.accent.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                  // Concentric radar line
-                  Container(
-                    height: 94,
-                    width: 94,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: p.accent.withValues(alpha: 0.25),
-                        width: 1.2,
-                      ),
-                    ),
-                  ),
-                  // Inner core lens with car glyph
-                  Container(
-                    height: 64,
-                    width: 64,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: p.accentGradient,
-                      boxShadow: [
-                        BoxShadow(
-                          color: p.accent.withValues(alpha: 0.4),
-                          blurRadius: 18,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.directions_car_filled_rounded,
-                      size: 32,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: Gap.lg),
-            Text(
-              'Type Registration Number'.tr,
-              textAlign: TextAlign.center,
-              style: AppType.h1.s(17).c(p.ink).w(FontWeight.w700),
-            ),
-            const SizedBox(height: Gap.xs + 2),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
               child: Text(
-                'If the vehicle has visited before, all customer history, engine specs, and past service logs will auto-fill.'
-                    .tr,
-                textAlign: TextAlign.center,
-                style: AppType.bodyS.s(11.5).c(p.inkMuted),
+                label,
+                maxLines: 1,
+                style: AppType.labelS
+                    .s(10.5)
+                    .c(here ? p.ink : p.inkMuted)
+                    .w(here ? FontWeight.w700 : FontWeight.w500),
               ),
             ),
-            const SizedBox(height: Gap.xl),
-            Pressable(
-              onTap: onAddManual,
-              scale: 0.95,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Gap.lg,
-                  vertical: Gap.md - 2,
-                ),
-                decoration: BoxDecoration(
-                  color: p.surfaceAlt,
-                  borderRadius: R.all(R.pill),
-                  border: Border.all(color: p.line),
-                  boxShadow: Shadows.soft(p),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.add_circle_outline_rounded,
-                      size: 16,
-                      color: p.accent,
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    // Flexible: the label is long, the pill is centred in a
-                    // page gutter, and on a 360pt handset the two together
-                    // are wider than the screen.
-                    Flexible(
-                      child: Text(
-                        'ADD A NEW VEHICLE'.tr,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.over.s(10).c(p.ink).w(FontWeight.w700),
-                      ),
-                    ),
-                    const SizedBox(width: Gap.xs),
-                    Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 14,
-                      color: p.inkFaint,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The executive automotive telemetry card for returning vehicles.
-class _MatchCard extends StatelessWidget {
-  const _MatchCard({
-    required this.name,
-    required this.phone,
-    required this.vehicle,
-    required this.reg,
-    required this.onContinue,
-  });
-
-  final String name;
-  final String phone;
-  final String vehicle;
-  final String reg;
-  final VoidCallback onContinue;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.c;
-    return Container(
-      padding: const EdgeInsets.all(Gap.lg),
-      decoration: BoxDecoration(
-        color: p.isDark
-            ? Color.alphaBlend(p.success.withValues(alpha: 0.1), p.surface)
-            : Colors.white,
-        borderRadius: R.all(R.xl),
-        border: Border.all(
-          color: p.success.withValues(alpha: 0.35),
-          width: 1.4,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: p.success.withValues(alpha: 0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                height: 28,
-                width: 28,
-                decoration: BoxDecoration(
-                  color: p.successSoft,
-                  borderRadius: R.all(R.xs),
-                ),
-                child: Icon(Icons.verified_rounded, size: 16, color: p.success),
-              ),
-              const SizedBox(width: Gap.sm),
-              Text(
-                'RETURNING VEHICLE IDENTIFIED'.tr,
-                style: AppType.over.s(10).c(p.success).w(FontWeight.w800),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: p.successSoft,
-                  borderRadius: R.all(R.pill),
-                ),
-                child: Text(
-                  'RECORDS FOUND'.tr,
-                  style: AppType.over.s(8.5).c(p.success).w(FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: Gap.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: p.surfaceSunken,
-                  borderRadius: R.all(R.sm),
-                  border: Border.all(color: p.line),
-                ),
-                child: Text(
-                  Fmt.plate(reg),
-                  style: AppType.money.s(14).c(p.ink).w(FontWeight.w800),
-                ),
-              ),
-              const SizedBox(width: Gap.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name.isEmpty ? 'Customer'.tr : name,
-                      style: AppType.h2.s(16).c(p.ink),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      [vehicle, phone].where((e) => e.isNotEmpty).join(' • '),
-                      style: AppType.bodyS.s(11).c(p.inkMuted),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: Gap.lg),
-          GButton.accent(
-            label: 'CONTINUE TO DETAILS'.tr,
-            trailingIcon: Icons.arrow_forward_rounded,
-            onPressed: onContinue,
           ),
         ],
       ),
@@ -2563,7 +2660,7 @@ class _BookedCard extends StatelessWidget {
 
   final Booking booking;
 
-  /// Offered on the search step only; the details step is already there.
+  /// Offered on the customer step only; the vehicle step is already there.
   final VoidCallback? onContinue;
 
   @override
@@ -2577,10 +2674,7 @@ class _BookedCard extends StatelessWidget {
             ? Color.alphaBlend(p.accent.withValues(alpha: 0.1), p.surface)
             : Colors.white,
         borderRadius: R.all(R.xl),
-        border: Border.all(
-          color: p.accent.withValues(alpha: 0.35),
-          width: 1.4,
-        ),
+        border: Border.all(color: p.accent.withValues(alpha: 0.35), width: 1.4),
         boxShadow: Shadows.soft(p),
       ),
       child: Column(
@@ -2643,7 +2737,7 @@ class _BookedCard extends StatelessWidget {
           if (onContinue != null) ...[
             const SizedBox(height: Gap.lg),
             GButton.accent(
-              label: 'CONTINUE TO DETAILS'.tr,
+              label: 'CONTINUE TO VEHICLE'.tr,
               trailingIcon: Icons.arrow_forward_rounded,
               onPressed: onContinue,
             ),
@@ -2712,21 +2806,29 @@ class _PhotoStrip extends StatelessWidget {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.add_a_photo_rounded,
-                            size: 22,
-                            color: p.accent,
+                    // Scaled down rather than clipped: at a large system
+                    // font the two lines no longer fit the square.
+                    : Padding(
+                        padding: const EdgeInsets.all(Gap.xs),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.add_a_photo_rounded,
+                                size: 22,
+                                color: p.accent,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Camera or\ngallery'.tr,
+                                textAlign: TextAlign.center,
+                                style: AppType.bodyS.s(10).c(p.inkMuted),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Camera or\ngallery'.tr,
-                            textAlign: TextAlign.center,
-                            style: AppType.bodyS.s(10).c(p.inkMuted),
-                          ),
-                        ],
+                        ),
                       ),
               ),
             );
@@ -2899,23 +3001,30 @@ class _StepNav extends StatelessWidget {
   const _StepNav({
     required this.onNext,
     this.onBack,
-    this.nextLabel = 'Next',
+    this.nextLabel,
     this.nextIcon = Icons.arrow_forward_rounded,
+    this.ready = true,
   });
 
-  /// Null disables the button — the step is not finished yet.
+  /// Null disables the button outright.
   final VoidCallback? onNext;
+
+  /// False dims the button while leaving it tappable, for a step that is not
+  /// finished yet: the tap then says what is missing, where a dead button
+  /// left the counter scrolling the form for the field that was holding it.
+  final bool ready;
 
   /// Null drops Back entirely, for the first step, where back means leaving.
   final VoidCallback? onBack;
 
-  final String nextLabel;
+  /// Defaults to "Next".
+  final String? nextLabel;
   final IconData nextIcon;
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
-    final live = onNext != null;
+    final live = onNext != null && ready;
 
     return Row(
       children: [
@@ -2961,7 +3070,7 @@ class _StepNav extends StatelessWidget {
           flex: onBack == null ? 1 : 5,
           child: Pressable(
             onTap: onNext,
-            scale: live ? 0.96 : 1.0,
+            scale: onNext != null ? 0.96 : 1.0,
             haptic: live,
             child: Opacity(
               opacity: live ? 1 : 0.45,
@@ -2985,16 +3094,20 @@ class _StepNav extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const SizedBox(width: 38),
+                    // Shrinks rather than cuts off: "Open Job Card · ₹2,…"
+                    // hid the very figure the button exists to show.
                     Expanded(
-                      child: Text(
-                        nextLabel,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.labelL
-                            .s(15)
-                            .c(Colors.white)
-                            .w(FontWeight.w800),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          nextLabel ?? 'Next'.tr,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          style: AppType.labelL
+                              .s(15)
+                              .c(Colors.white)
+                              .w(FontWeight.w800),
+                        ),
                       ),
                     ),
                     Container(
@@ -3017,8 +3130,9 @@ class _StepNav extends StatelessWidget {
   }
 }
 
-/// Customer strip at the top of the handover step, with the two ways to
-/// reach them while the car is on the ramp.
+/// Customer strip at the top of the damage step, with the two ways to reach
+/// them while the car is on the ramp — the step where a question about a
+/// scratch most often needs asking.
 class _OwnerStrip extends ConsumerWidget {
   const _OwnerStrip({
     required this.name,
@@ -3036,9 +3150,7 @@ class _OwnerStrip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
     // WhatsApp is offered only while it is switched on in Settings.
-    final whatsapp = ref.watch(
-      adminProvider.select((s) => s.whatsappEnabled),
-    );
+    final whatsapp = ref.watch(adminProvider.select((s) => s.whatsappEnabled));
     final visits = history == null
         ? 0
         : ref.watch(adminDataProvider).historyOf(history!).length;
@@ -3138,135 +3250,29 @@ class _Round extends StatelessWidget {
   }
 }
 
-/// One of the three intake buttons, with the count it has collected.
-class _Slab extends StatelessWidget {
-  const _Slab({
-    required this.label,
-    required this.count,
-    required this.tint,
-    required this.onTap,
-  });
-
-  final String label;
-  final int count;
-  final Color tint;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.c;
-    return Pressable(
-      onTap: onTap,
-      scale: 0.96,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: Gap.md),
-        decoration: BoxDecoration(
-          color: p.surface,
-          borderRadius: R.all(R.sm),
-          border: Border.all(color: p.line),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.labelM.c(tint),
-              ),
-            ),
-            if (count > 0) ...[
-              const SizedBox(width: Gap.sm),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: tint.withValues(alpha: 0.14),
-                  borderRadius: R.all(R.pill),
-                ),
-                child: Text('$count', style: AppType.labelS.s(10).c(tint)),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// What has been ticked so far, listed under the intake buttons.
-class _Listing extends StatelessWidget {
-  const _Listing({
-    required this.title,
-    required this.tint,
-    required this.values,
-    required this.empty,
-  });
-
-  final String title;
-  final Color tint;
-  final List<String> values;
-  final String empty;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.c;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              height: 9,
-              width: 9,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: tint),
-            ),
-            const SizedBox(width: Gap.sm),
-            Text(title, style: AppType.labelL.c(tint)),
-          ],
-        ),
-        const SizedBox(height: Gap.sm),
-        if (values.isEmpty)
-          Text(empty, style: AppType.bodyS.c(p.inkFaint))
-        else
-          Wrap(
-            spacing: Gap.sm,
-            runSpacing: Gap.sm,
-            children: [
-              for (final v in values)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Gap.md,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: p.surface,
-                    borderRadius: R.all(R.pill),
-                    border: Border.all(color: p.line),
-                  ),
-                  child: Text(v, style: AppType.labelM.c(p.inkSoft)),
-                ),
-            ],
-          ),
-      ],
-    );
-  }
-}
-
 class _Choice extends StatelessWidget {
   const _Choice({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.icon,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
+    final ink = selected ? (p.isDark ? p.canvas : Colors.white) : p.inkSoft;
+    final text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppType.labelM.c(ink),
+    );
     return Pressable(
       onTap: onTap,
       scale: 0.95,
@@ -3281,12 +3287,196 @@ class _Choice extends StatelessWidget {
           borderRadius: R.all(R.pill),
           border: Border.all(color: selected ? p.ink : p.line),
         ),
-        child: Text(
-          label,
-          style: AppType.labelM.c(
-            selected ? (p.isDark ? p.canvas : Colors.white) : p.inkSoft,
+        child: icon == null
+            ? text
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 15, color: ink),
+                  const SizedBox(width: 6),
+                  Flexible(child: text),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+/// Whether what is on this step reaches the customer's invoice.
+///
+/// Said on every step because the counter fills them very differently: an
+/// invoice field is typed carefully and spelled right, a handover note is
+/// typed fast and for the floor.
+class _PrintHint extends StatelessWidget {
+  const _PrintHint({required this.printed, this.optional = false, this.what});
+
+  final bool printed;
+
+  /// Adds "optional" — the step can be skipped when there is nothing to say.
+  final bool optional;
+
+  /// Overrides the default wording. Passed untranslated; translated here.
+  final String? what;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    final tint = printed ? p.success : p.inkMuted;
+    final say =
+        what?.tr ??
+        (printed
+            ? 'Printed on the invoice'.tr
+            : optional
+            ? 'Optional · not printed on the invoice'.tr
+            : 'Not printed on the invoice'.tr);
+    return Row(
+      children: [
+        Icon(
+          printed ? Icons.receipt_long_rounded : Icons.visibility_off_rounded,
+          size: 14,
+          color: tint,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            say,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.labelS.s(11).c(tint),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// The blue IND strip at the left of an Indian number plate, so the field
+/// reads as a plate before anything is typed into it.
+class _IndBadge extends StatelessWidget {
+  const _IndBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F3E8C),
+        borderRadius: R.all(6),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 6,
+            width: 6,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFFFFCC00),
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            'IND',
+            style: AppType.over.s(7.5).c(Colors.white).w(FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The switch for a vehicle that genuinely has no plate — a walk-in in
+/// transit, a new bike off the showroom floor.
+class _NoPlateRow extends StatelessWidget {
+  const _NoPlateRow({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Container(
+      padding: const EdgeInsets.only(left: Gap.md, right: Gap.xs),
+      decoration: BoxDecoration(
+        color: p.isDark ? p.surfaceAlt : const Color(0xFFF7F8FA),
+        borderRadius: R.all(R.md),
+        border: Border.all(color: p.lineSoft),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.car_crash_rounded, size: 16, color: p.inkMuted),
+          const SizedBox(width: Gap.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No Vehicle Number'.tr,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.labelM.s(12.5).c(p.ink).w(FontWeight.w600),
+                ),
+                Text(
+                  'Walk-in transit or unnumbered vehicle'.tr,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.bodyS.s(10).c(p.inkFaint),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            activeThumbColor: p.accent,
+            activeTrackColor: p.accent.withValues(alpha: 0.3),
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What a plate search that found nothing means: a new vehicle, to be filled
+/// in below — a normal outcome, said as one rather than as an error.
+class _NewVehicleNote extends StatelessWidget {
+  const _NewVehicleNote({required this.noPlate});
+
+  final bool noPlate;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Container(
+      padding: const EdgeInsets.all(Gap.md),
+      decoration: BoxDecoration(
+        color: p.accentSoft,
+        borderRadius: R.all(R.md),
+        border: Border.all(color: p.accent.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.fiber_new_rounded, size: 22, color: p.accentInk),
+          const SizedBox(width: Gap.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  noPlate
+                      ? 'No registration number'.tr
+                      : 'Vehicle not registered yet'.tr,
+                  style: AppType.labelL.c(p.ink),
+                ),
+                Text(
+                  'Fill in the details below — it is saved with the card.'.tr,
+                  style: AppType.bodyS.c(p.inkMuted),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3442,7 +3632,7 @@ class _BillSheet extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Add the work, the parts and the oil — or leave it empty and quote a figure below.'
+                    'Add the jobs and the spares — or leave it empty and quote a figure below.'
                         .tr,
                     textAlign: TextAlign.center,
                     style: AppType.bodyS.c(p.inkMuted),
@@ -3461,21 +3651,24 @@ class _BillSheet extends StatelessWidget {
                 ),
 
           // One control cluster instead of an Add button per card: adding a
-          // spare is the same gesture wherever you are on the bill.
+          // spare is the same gesture wherever you are on the bill. A Wrap,
+          // because the three in a row ran a few pixels past a 360dp phone.
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.md),
-            child: Row(
-              children: [
-                for (final kind in LineKind.values) ...[
-                  _AddChip(
-                    label: kind.label,
-                    tint: _tint(p, kind),
-                    onTap: () => onAdd(kind),
-                  ),
-                  if (kind != LineKind.values.last)
-                    const SizedBox(width: Gap.sm),
+            child: SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
+                children: [
+                  for (final kind in kBillKinds)
+                    _AddChip(
+                      label: kind.label,
+                      tint: _tint(p, kind),
+                      onTap: () => onAdd(kind),
+                    ),
                 ],
-              ],
+              ),
             ),
           ),
           if (items.isNotEmpty)
@@ -3699,9 +3892,15 @@ class _MechanicRow extends StatelessWidget {
               children: [
                 Icon(Icons.person_add_alt_1_rounded, size: 16, color: p.accent),
                 const SizedBox(width: Gap.sm),
-                Text(
-                  assigned.isEmpty ? 'Select Mechanic'.tr : 'Add another'.tr,
-                  style: AppType.labelM.c(p.accent),
+                // Flexible: a Wrap bounds its children by the row's width,
+                // and at a large system font the label alone outgrew it.
+                Flexible(
+                  child: Text(
+                    assigned.isEmpty ? 'Select Mechanic'.tr : 'Add another'.tr,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.labelM.c(p.accent),
+                  ),
                 ),
               ],
             ),
@@ -3762,6 +3961,55 @@ class _MechChip extends StatelessWidget {
               child: Icon(Icons.close_rounded, size: 15, color: p.accentInk),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Quote, advance and what is left to collect, side by side.
+class _MoneyStrip extends StatelessWidget {
+  const _MoneyStrip({required this.quoted, required this.advance});
+
+  final double quoted;
+  final double advance;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    final due = (quoted - advance).clamp(0, double.infinity).toDouble();
+    Widget cell(String label, double v, Color c, {bool strong = false}) =>
+        Expanded(
+          child: Column(
+            children: [
+              Text(label, style: AppType.labelS.c(p.inkMuted)),
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  Fmt.money(v),
+                  style: (strong ? AppType.money.s(20) : AppType.money.s(16))
+                      .c(c),
+                ),
+              ),
+            ],
+          ),
+        );
+    Widget rule() => Container(width: 1, height: 34, color: p.line);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: Gap.sm + 2),
+      decoration: BoxDecoration(
+        color: p.surfaceAlt,
+        borderRadius: R.all(R.md),
+        border: Border.all(color: p.line),
+      ),
+      child: Row(
+        children: [
+          cell('Quoted'.tr, quoted, p.ink),
+          rule(),
+          cell('Advance'.tr, advance, p.success),
+          rule(),
+          cell('Balance due'.tr, due, p.accentInk, strong: true),
         ],
       ),
     );

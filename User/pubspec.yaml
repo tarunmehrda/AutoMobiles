@@ -1,7 +1,7 @@
 name: garagepro
 description: "Balaji Automobiles — the customer app for Balaji Automobiles, total cars solutions."
 publish_to: 'none'
-version: 1.0.1+2
+version: 1.0.4+5
 
 environment:
   sdk: ^3.11.0

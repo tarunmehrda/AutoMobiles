@@ -62,12 +62,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The counter declares the vehicle unnumbered.
-    await tester.tap(find.byType(Switch));
+    // On to the vehicle step, where the plate and its switch live.
+    tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(1);
     await tester.pumpAndSettle();
 
-    // Straight on to the details form, the way the onboarding button goes.
-    tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(1);
+    // The counter declares the vehicle unnumbered.
+    await tester.tap(find.byType(Switch).hitTestable());
     await tester.pumpAndSettle();
 
     // GField puts its label in a Text above the input, so the field is found
@@ -124,10 +124,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(Switch));
+    tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(1);
     await tester.pumpAndSettle();
 
-    final lookup = find.byType(TextField).first;
+    await tester.tap(find.byType(Switch).hitTestable());
+    await tester.pumpAndSettle();
+
+    // The plate field is the search box: Search sits on its end.
+    final lookup = find
+        .descendant(
+          of: find.byWidgetPredicate(
+            (w) => w is GField && (w.label ?? '').startsWith('Vehicle Number'),
+          ),
+          matching: find.byType(TextField),
+        )
+        .hitTestable();
     expect(
       tester.widget<TextField>(lookup).enabled,
       isNot(false),

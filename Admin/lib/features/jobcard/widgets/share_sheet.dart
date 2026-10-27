@@ -16,9 +16,11 @@ import '../../../core/utils/save_file.dart';
 import '../../../core/widgets/g_badge.dart';
 import '../../../core/widgets/g_feedback.dart';
 import '../../../core/widgets/pressable.dart';
+import '../../../data/models/books.dart';
 import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import '../documents/doc_sections.dart';
+import '../documents/doc_text.dart';
 import '../documents/invoice_format.dart';
 import '../documents/pdf_builder.dart';
 import 'template_picker.dart';
@@ -43,13 +45,18 @@ class ShareSheet {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
     GlobalKey? captureKey,
     InvoiceFormat? format,
     Set<DocSection>? sections,
     void Function(InvoiceFormat, Set<DocSection>)? onTemplate,
   }) {
     var chosen = format ?? lastFormat;
-    var on = sections ?? DocSectionX.defaultsFor(chosen, kind);
+    var on =
+        sections ??
+        DocSectionX.defaultsFor(chosen, kind, jobCardCopy: jobCardCopy);
+    final title = docTitle(kind, chosen, jobCardCopy: jobCardCopy);
     // Every action below closes the sheet first and then does its work —
     // building a PDF takes seconds. Its results used to be reported through
     // the sheet's own context, which is unmounted by then, so "Saved to…"
@@ -58,7 +65,7 @@ class ShareSheet {
     final host = context;
     return GFeedback.sheet<void>(
       context,
-      title: 'Share {0}'.trf([kind.label.toLowerCase()]),
+      title: 'Share {0}'.trf([title.toLowerCase()]),
       subtitle: '${card.number} • ${customer?.name ?? ''}',
       child: StatefulBuilder(
         builder: (context, setSheet) => SingleChildScrollView(
@@ -112,6 +119,8 @@ class ShareSheet {
                           customer: customer,
                           vehicle: vehicle,
                           staff: staff,
+                          jobCardCopy: jobCardCopy,
+                          banks: banks,
                         );
                       },
                     ),
@@ -144,6 +153,8 @@ class ShareSheet {
                           customer: customer,
                           vehicle: vehicle,
                           staff: staff,
+                          jobCardCopy: jobCardCopy,
+                          banks: banks,
                         );
                       },
                     ),
@@ -169,6 +180,8 @@ class ShareSheet {
                           customer: customer,
                           vehicle: vehicle,
                           staff: staff,
+                          jobCardCopy: jobCardCopy,
+                          banks: banks,
                         );
                       },
                     ),
@@ -227,6 +240,8 @@ class ShareSheet {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
   }) => JobPdf.build(
     kind: kind,
     card: card,
@@ -236,14 +251,23 @@ class ShareSheet {
     customer: customer,
     vehicle: vehicle,
     staff: staff,
+    jobCardCopy: jobCardCopy,
+    banks: banks,
     // A wedged font load or plugin call used to leave the button doing
     // nothing at all. Bounded, it becomes an error somebody can report.
     // Photographs are read off the disk inside this, so the budget is
     // the whole document rather than just the font.
   ).timeout(const Duration(seconds: 30));
 
-  static String _fileName(DocKind kind, JobCard card, InvoiceFormat format) =>
-      '${kind.name}-${format.name}-${card.number}.pdf';
+  /// `mechanicCopy-simpleA4-JC-001.pdf`, or `jobCardCopy-…` for the
+  /// customer's copy, so the two floor copies are told apart in Downloads.
+  static String _fileName(
+    DocKind kind,
+    JobCard card,
+    InvoiceFormat format, {
+    bool jobCardCopy = false,
+  }) =>
+      '${jobCardCopy && kind == DocKind.mechanicCopy ? 'jobCardCopy' : kind.name}-${format.name}-${card.number}.pdf';
 
   static Future<void> _print(
     BuildContext context, {
@@ -255,10 +279,17 @@ class ShareSheet {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
   }) async {
     try {
       await Printing.layoutPdf(
-        name: _fileName(kind, card, format ?? lastFormat),
+        name: _fileName(
+          kind,
+          card,
+          format ?? lastFormat,
+          jobCardCopy: jobCardCopy,
+        ),
         onLayout: (_) => _bytes(
           kind: kind,
           card: card,
@@ -268,6 +299,8 @@ class ShareSheet {
           customer: customer,
           vehicle: vehicle,
           staff: staff,
+          jobCardCopy: jobCardCopy,
+          banks: banks,
         ),
       );
     } catch (e) {
@@ -290,6 +323,8 @@ class ShareSheet {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
   }) async {
     try {
       final bytes = await _bytes(
@@ -301,8 +336,15 @@ class ShareSheet {
         customer: customer,
         vehicle: vehicle,
         staff: staff,
+        jobCardCopy: jobCardCopy,
+        banks: banks,
       );
-      final file = _fileName(kind, card, format ?? lastFormat);
+      final file = _fileName(
+        kind,
+        card,
+        format ?? lastFormat,
+        jobCardCopy: jobCardCopy,
+      );
       await SharePlus.instance.share(
         ShareParams(
           files: [
@@ -339,6 +381,8 @@ class ShareSheet {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
   }) => _savePdf(
     context,
     kind: kind,
@@ -349,6 +393,8 @@ class ShareSheet {
     customer: customer,
     vehicle: vehicle,
     staff: staff,
+    jobCardCopy: jobCardCopy,
+    banks: banks,
   );
 
   static Future<void> _savePdf(
@@ -361,6 +407,8 @@ class ShareSheet {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
   }) async {
     try {
       final bytes = await _bytes(
@@ -372,8 +420,15 @@ class ShareSheet {
         customer: customer,
         vehicle: vehicle,
         staff: staff,
+        jobCardCopy: jobCardCopy,
+        banks: banks,
       );
-      final file = _fileName(kind, card, format ?? lastFormat);
+      final file = _fileName(
+        kind,
+        card,
+        format ?? lastFormat,
+        jobCardCopy: jobCardCopy,
+      );
       final path = await saveToDownloads(file, bytes);
       if (path == null) {
         // Nowhere this app may write — the web, or a locked-down device.
@@ -501,14 +556,16 @@ class ShareSheet {
       '',
       for (final item in card.items)
         kind.showsPricing
-            ? '${item.name} x${item.qtyLabel} — ${Fmt.money2(item.amount)}'
-            : '${item.name} — ${item.state.label}',
+            ? '${item.name} x${qtyWithUnit(item)} — ${Fmt.money2(item.amount)}'
+            : floorLine(item),
     ];
 
     if (kind.showsPricing) {
       lines.addAll([
         '',
         'Total: ${Fmt.money2(card.total)}',
+        if (kind == DocKind.invoice && card.advancePaid > 0)
+          'Advance: ${Fmt.money2(card.advancePaid)}',
         if (kind == DocKind.invoice) 'Paid: ${Fmt.money2(card.paid)}',
         if (kind == DocKind.invoice) 'Balance: ${Fmt.money2(card.balance)}',
       ]);

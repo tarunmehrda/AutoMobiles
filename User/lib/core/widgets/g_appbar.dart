@@ -69,12 +69,21 @@ class GHeader extends StatelessWidget implements PreferredSizeWidget {
                           : CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        // Page names are short, so a title that does not
+                        // fit beside the actions is set a little smaller
+                        // rather than cut to "Notificati...".
                         if (title != null)
-                          Text(title!,
-                              style: AppType.h1.c(p.ink),
-                              overflow: TextOverflow.ellipsis),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: centered
+                                ? Alignment.center
+                                : Alignment.centerLeft,
+                            child: Text(title!,
+                                maxLines: 1, style: AppType.h1.c(p.ink)),
+                          ),
                         if (subtitle != null)
                           Text(subtitle!,
+                              maxLines: 1,
                               style: AppType.bodyS.c(p.inkMuted),
                               overflow: TextOverflow.ellipsis),
                       ],

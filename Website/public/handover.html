@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Balaji Automobiles — Project Handover & Technical Blueprint</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #111827;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(31, 41, 55, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-color-glow: rgba(59, 130, 246, 0.35);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #8b5cf6;
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 20px rgba(0,0,0,0.5);
+      --shadow-lg: 0 10px 30px rgba(0,0,0,0.7);
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --bg-card: rgba(255, 255, 255, 0.9);
+      --bg-card-hover: #f1f5f9;
+      --border-color: #e2e8f0;
+      --border-color-glow: rgba(59, 130, 246, 0.4);
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-dim: #94a3b8;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+      --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.6;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* Sidebar Navigation */
+    aside.sidebar {
+      width: 290px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 50;
+      backdrop-filter: blur(12px);
+    }
+
+    .brand-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo-badge {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #2563eb, #06b6d4);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 800;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+    }
+
+    .brand-title h2 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+    }
+
+    .brand-title p {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-cyan);
+    }
+
+    .nav-links {
+      flex: 1;
+      padding: 16px 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13.5px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-main);
+    }
+
+    .nav-item.active {
+      background: rgba(59, 130, 246, 0.12);
+      color: var(--accent-blue);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .nav-item .icon {
+      font-size: 16px;
+      width: 22px;
+      text-align: center;
+    }
+
+    .sidebar-footer {
+      padding: 16px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .theme-toggle-btn, .print-btn {
+      flex: 1;
+      background: var(--bg-card-hover);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .theme-toggle-btn:hover, .print-btn:hover {
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    /* Main Container */
+    main.content-area {
+      margin-left: 290px;
+      flex: 1;
+      padding: 40px 48px 80px;
+      max-width: 1300px;
+    }
+
+    /* Hero Banner */
+    .hero-banner {
+      background: linear-gradient(135deg, rgba(30, 58, 138, 0.35) 0%, rgba(15, 23, 42, 0.6) 100%);
+      border: 1px solid var(--border-color-glow);
+      border-radius: var(--radius-lg);
+      padding: 32px 36px;
+      margin-bottom: 36px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .hero-banner::after {
+      content: "";
+      position: absolute;
+      top: -50px;
+      right: -50px;
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .badge-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .status-badge {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.05em;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .status-badge.live {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+
+    .status-badge.client {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+
+    .status-badge.security {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+
+    .hero-banner h1 {
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .hero-banner p.subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+      max-width: 820px;
+    }
+
+    /* Section Styling */
+    section.doc-section {
+      margin-bottom: 48px;
+      scroll-margin-top: 40px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+    }
+
+    .section-header h2 {
+      font-size: 21px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-header h2 .sec-icon {
+      color: var(--accent-blue);
+    }
+
+    /* Cards Grid */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 20px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+    }
+
+    .card:hover {
+      border-color: var(--border-color-glow);
+      box-shadow: var(--shadow-md);
+    }
+
+    .card.highlight {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: linear-gradient(180deg, rgba(30, 58, 138, 0.15) 0%, var(--bg-card) 100%);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title span.tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    /* Credential Row Component */
+    .cred-row {
+      margin-bottom: 14px;
+    }
+
+    .cred-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .cred-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-main);
+      overflow: hidden;
+    }
+
+    [data-theme="light"] .cred-box {
+      background: #f1f5f9;
+    }
+
+    .cred-box .val {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font-sans);
+      transition: all 0.2s;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+
+    .copy-btn:hover {
+      background: var(--accent-blue);
+      color: #fff;
+      border-color: var(--accent-blue);
+    }
+
+    .copy-btn.copied {
+      background: var(--accent-emerald) !important;
+      color: #fff !important;
+      border-color: var(--accent-emerald) !important;
+    }
+
+    /* Data Tables */
+    .table-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      margin-top: 14px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+      text-align: left;
+    }
+
+    table.data-table th {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 12px 16px;
+      font-weight: 700;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    table.data-table td {
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--border-color);
+      vertical-align: middle;
+    }
+
+    table.data-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    table.data-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Method Badges */
+    .method-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    .method-post {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+
+    .method-get {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+
+    /* Code Blocks */
+    pre.code-block {
+      background: #060911;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      overflow-x: auto;
+      color: #e5e7eb;
+      position: relative;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+
+    [data-theme="light"] pre.code-block {
+      background: #0f172a;
+      color: #f8fafc;
+    }
+
+    .code-block .code-copy-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+    }
+
+    /* Alert Banners */
+    .alert-box {
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 13.5px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      border: 1px solid transparent;
+    }
+
+    .alert-box.info {
+      background: rgba(59, 130, 246, 0.1);
+      border-color: rgba(59, 130, 246, 0.3);
+      color: #bfdbfe;
+    }
+
+    .alert-box.success {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: #a7f3d0;
+    }
+
+    .alert-box.warning {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.3);
+      color: #fde68a;
+    }
+
+    .alert-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    /* Interactive API Search */
+    .search-input-box {
+      position: relative;
+      margin-bottom: 16px;
+    }
+
+    .search-input-box input {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 12px 16px 12px 42px;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .search-input-box input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    .search-input-box .search-icon {
+      position: absolute;
+      left: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+      font-size: 16px;
+    }
+
+    /* Stepper Workflow */
+    .stepper {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      margin-top: 14px;
+    }
+
+    .step-card {
+      display: flex;
+      gap: 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 20px;
+    }
+
+    .step-number {
+      width: 36px;
+      height: 36px;
+      background: rgba(59, 130, 246, 0.2);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: var(--accent-blue);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+
+    .step-desc {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* Print Stylesheet */
+    @media print {
+      body {
+        background: #ffffff !important;
+        color: #000000 !important;
+      }
+      aside.sidebar, .theme-toggle-btn, .print-btn, .copy-btn, .search-input-box {
+        display: none !important;
+      }
+      main.content-area {
+        margin-left: 0 !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+      .hero-banner {
+        background: #f1f5f9 !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+      }
+      .card, .table-container, .step-card {
+        border: 1px solid #e2e8f0 !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+      }
+      pre.code-block {
+        background: #f8fafc !important;
+        color: #0f172a !important;
+        border: 1px solid #e2e8f0 !important;
+      }
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar {
+        display: none;
+      }
+      main.content-area {
+        margin-left: 0;
+        padding: 24px;
+      }
+      .grid-2, .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="brand-header">
+      <div class="brand-logo-badge">BA</div>
+      <div class="brand-title">
+        <h2>Balaji Automobiles</h2>
+        <p>Client Handover Portal</p>
+      </div>
+    </div>
+
+    <div class="nav-links">
+      <a class="nav-item active" href="#overview"><span class="icon">🏛️</span> Overview & Scope</a>
+      <a class="nav-item" href="#credentials"><span class="icon">🔑</span> Master Credentials Vault</a>
+      <a class="nav-item" href="#notifications"><span class="icon">🔔</span> 3-Tier Notification Engine</a>
+      <a class="nav-item" href="#apis"><span class="icon">⚡</span> Complete API & RPC Suite</a>
+      <a class="nav-item" href="#paste-guide"><span class="icon">📋</span> "What to Paste" Checklist</a>
+      <a class="nav-item" href="#rbac"><span class="icon">🛡️</span> Roles & Permissions (RBAC)</a>
+      <a class="nav-item" href="#gst-invoicing"><span class="icon">🧾</span> GST & Invoicing Engine</a>
+      <a class="nav-item" href="#artifacts"><span class="icon">🚀</span> Release Artifacts & APKs</a>
+      <a class="nav-item" href="#troubleshooting"><span class="icon">🛠️</span> Health Checks & FAQs</a>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="theme-toggle-btn" id="themeToggleBtn">🌓 Theme</button>
+      <button class="print-btn" onclick="window.print()">🖨️ PDF / Print</button>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="content-area">
+
+    <!-- Hero Banner -->
+    <div class="hero-banner" id="overview">
+      <div class="badge-strip">
+        <span class="status-badge live">● Ready for Production Handover</span>
+        <span class="status-badge client">Client: Balaji Automobiles</span>
+        <span class="status-badge security">Verified Supabase + FCM</span>
+      </div>
+      <h1>Project Handover & Technical Master Document</h1>
+      <p class="subtitle">
+        Official deployment, credentials, backend notification pipeline, and API blueprint for 
+        <strong>Balaji Garage (Workshop Console)</strong>, <strong>Balaji Car (Customer App)</strong>, and the 
+        <strong>WhatsApp Live Shared Job Card Portal</strong>.
+      </p>
+    </div>
+
+    <!-- Section 1: Executive Overview -->
+    <section class="doc-section">
+      <div class="section-header">
+        <h2><span class="sec-icon">🏛️</span> 1. System Ecosystem Overview</h2>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title">
+            <span>Balaji Garage (Console)</span>
+            <span class="tag">Flutter / Android</span>
+          </div>
+          <p style="color: var(--text-muted); font-size: 13.5px; margin-bottom: 12px;">
+            Workshop counter console for the owner, manager, accountant, and mechanics. Fully offline-first with immediate local persistence and automatic Supabase cloud sync.
+          </p>
+          <div class="cred-label">Package Name</div>
+          <div class="cred-box"><span class="val">com.balajiautomobiles.garage</span><button class="copy-btn" data-copy="com.balajiautomobiles.garage">Copy</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Balaji Car (Customer)</span>
+            <span class="tag">Flutter / Android</span>
+          </div>
+          <p style="color: var(--text-muted); font-size: 13.5px; margin-bottom: 12px;">
+            Customer booking app allowing car owners to book service visits, track repair progress live, review estimates, inspect invoices, and find nearby workshops by GPS.
+          </p>
+          <div class="cred-label">Package Name</div>
+          <div class="cred-box"><span class="val">com.balajiautomobiles.customer</span><button class="copy-btn" data-copy="com.balajiautomobiles.customer">Copy</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>WhatsApp Live Share</span>
+            <span class="tag">React 19 / Netlify</span>
+          </div>
+          <p style="color: var(--text-muted); font-size: 13.5px; margin-bottom: 12px;">
+            Zero-install public web portal. A workshop sends a WhatsApp link (<code>/j/:token</code>) and the customer views their live invoice without installing an app or signing in.
+          </p>
+          <div class="cred-label">Base Link</div>
+          <div class="cred-box"><span class="val">https://balajiautomobiles.in/j/</span><button class="copy-btn" data-copy="https://balajiautomobiles.in/j/">Copy</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 2: Master Credentials Vault -->
+    <section class="doc-section" id="credentials">
+      <div class="section-header">
+        <h2><span class="sec-icon">🔑</span> 2. Master Credentials & Access Vault</h2>
+      </div>
+
+      <div class="alert-box info">
+        <span class="alert-icon">🔒</span>
+        <div>
+          <strong>Confidential Master Keys:</strong> These credentials provide administrative control over the workshop console, the Supabase PostgreSQL database, and Google Cloud services. Keep them secure.
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Master Workshop Login -->
+        <div class="card highlight">
+          <div class="card-title">
+            <span>Workshop Owner & Super Admin</span>
+            <span class="tag" style="background: rgba(16,185,129,0.2); color:#34d399;">Master Account</span>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Owner Email ID</div>
+            <div class="cred-box">
+              <span class="val">balajiautomobiles088@gmail.com</span>
+              <button class="copy-btn" data-copy="balajiautomobiles088@gmail.com">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Master Password</div>
+            <div class="cred-box">
+              <span class="val">automobiles@088*</span>
+              <button class="copy-btn" data-copy="automobiles@088*">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Platform Role</div>
+            <div class="cred-box">
+              <span class="val">Super Admin (platform_heads) + Workshop Owner</span>
+              <button class="copy-btn" data-copy="Super Admin">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Workshop Phone & UPI ID</div>
+            <div class="cred-box">
+              <span class="val">9462153613 / 9269297999 | balajiauto@okicici</span>
+              <button class="copy-btn" data-copy="balajiauto@okicici">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Supabase Cloud Credentials -->
+        <div class="card">
+          <div class="card-title">
+            <span>Supabase Cloud Database</span>
+            <span class="tag">PostgreSQL 15</span>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Project Reference / ID</div>
+            <div class="cred-box">
+              <span class="val">zlrmcrhwtfbwbxhfmygs</span>
+              <button class="copy-btn" data-copy="zlrmcrhwtfbwbxhfmygs">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Supabase API Base URL</div>
+            <div class="cred-box">
+              <span class="val">https://zlrmcrhwtfbwbxhfmygs.supabase.co</span>
+              <button class="copy-btn" data-copy="https://zlrmcrhwtfbwbxhfmygs.supabase.co">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Publishable (Anon) Key</div>
+            <div class="cred-box">
+              <span class="val">sb_publishable_IJGQOXtE8tr7b_IgIi5cdQ_wDs6oFl7</span>
+              <button class="copy-btn" data-copy="sb_publishable_IJGQOXtE8tr7b_IgIi5cdQ_wDs6oFl7">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Dashboard Direct Link</div>
+            <div class="cred-box">
+              <span class="val">https://supabase.com/dashboard/project/zlrmcrhwtfbwbxhfmygs</span>
+              <button class="copy-btn" data-copy="https://supabase.com/dashboard/project/zlrmcrhwtfbwbxhfmygs">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Google & Hosting Vault -->
+      <div class="grid-2" style="margin-top: 20px;">
+        <div class="card">
+          <div class="card-title">
+            <span>Google Cloud OAuth 2.0</span>
+            <span class="tag">Android & Web</span>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Web Client ID</div>
+            <div class="cred-box">
+              <span class="val">787349507364-b943fq2sf47h2eqa3chiuck7923q7gv7.apps.googleusercontent.com</span>
+              <button class="copy-btn" data-copy="787349507364-b943fq2sf47h2eqa3chiuck7923q7gv7.apps.googleusercontent.com">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Redirect URI for Google Cloud Console</div>
+            <div class="cred-box">
+              <span class="val">https://zlrmcrhwtfbwbxhfmygs.supabase.co/auth/v1/callback</span>
+              <button class="copy-btn" data-copy="https://zlrmcrhwtfbwbxhfmygs.supabase.co/auth/v1/callback">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Keystore SHA-1 Fingerprint</div>
+            <div class="cred-box">
+              <span class="val">83:99:64:B6:0E:36:1D:AB:E1:92:2A:F5:8D:BC:41:21:0B:20:19:41</span>
+              <button class="copy-btn" data-copy="83:99:64:B6:0E:36:1D:AB:E1:92:2A:F5:8D:BC:41:21:0B:20:19:41">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Web Portals & Support</span>
+            <span class="tag">Public Links</span>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Official Website</div>
+            <div class="cred-box">
+              <span class="val">https://balajiautomobiles.in</span>
+              <button class="copy-btn" data-copy="https://balajiautomobiles.in">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Customer APK Download Link</div>
+            <div class="cred-box">
+              <span class="val">https://balaji-automobiles-apps.netlify.app</span>
+              <button class="copy-btn" data-copy="https://balaji-automobiles-apps.netlify.app">Copy</button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Support WhatsApp</div>
+            <div class="cred-box">
+              <span class="val">+91 92692 97999</span>
+              <button class="copy-btn" data-copy="+919269297999">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 3: 3-Tier Backend Notification Engine -->
+    <section class="doc-section" id="notifications">
+      <div class="section-header">
+        <h2><span class="sec-icon">🔔</span> 3. Backend Notification System (3-Tier Engine)</h2>
+      </div>
+
+      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
+        Designed to guarantee zero missed alerts across all device states. Each layer handles a distinct state where other layers cannot function.
+      </p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title">
+            <span>Layer 1: In-App Banner</span>
+            <span class="tag">App Active</span>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Driven by Supabase Realtime WebSocket channel (<code>garage:&lt;id&gt;</code>). Renders an instant floating banner across whatever screen is active without disrupting input.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Layer 2: Unread Feed & Bell</span>
+            <span class="tag">App Reopened</span>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Durable records stored in <code>public.garage_notifications</code> created purely by PostgreSQL database triggers. Neither client nor owner can forge or delete them.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Layer 3: OS Tray Audio Push</span>
+            <span class="tag">App Closed</span>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Triggered by Database Webhooks calling the <code>notify-garage</code> Edge Function to dispatch Google FCM v1 high-priority tray notifications with custom chimes.
+          </p>
+        </div>
+      </div>
+
+      <!-- Android Channels Table -->
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Channel ID</th>
+              <th>Destination App</th>
+              <th>Audio Chime Type</th>
+              <th>Android Priority</th>
+              <th>Business Event Trigger</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>garage_booking_v1</code></td>
+              <td>Workshop Console</td>
+              <td>High Alert Ring</td>
+              <td><span class="status-badge security">HIGH / Heads-Up</span></td>
+              <td>Customer taps "Confirm Booking"</td>
+            </tr>
+            <tr>
+              <td><code>garage_payment_v1</code></td>
+              <td>Workshop Console</td>
+              <td>Payment Chime</td>
+              <td><span class="status-badge security">HIGH / Heads-Up</span></td>
+              <td>Counter records advance or bill settlement</td>
+            </tr>
+            <tr>
+              <td><code>garage_reminder_v1</code></td>
+              <td>Workshop Console</td>
+              <td>Standard Tone</td>
+              <td><span class="status-badge live">DEFAULT</span></td>
+              <td>Service reminder due date reached</td>
+            </tr>
+            <tr>
+              <td><code>garage_general_v1</code></td>
+              <td>Workshop Console</td>
+              <td>Soft Chime</td>
+              <td><span class="status-badge live">DEFAULT</span></td>
+              <td>New customer review, part inquiry</td>
+            </tr>
+            <tr>
+              <td><code>customer_updates_v1</code></td>
+              <td>Customer App</td>
+              <td>Friendly Chime</td>
+              <td><span class="status-badge security">HIGH / Heads-Up</span></td>
+              <td>"Vehicle Ready for Pickup", "Booking Accepted"</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Edge Function Workflow -->
+      <div class="card" style="margin-top: 20px;">
+        <div class="card-title">
+          <span>Edge Function Architecture: <code>notify-garage</code></span>
+          <span class="tag">Deno TypeScript</span>
+        </div>
+        <p style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 12px;">
+          The function runs at <code>https://zlrmcrhwtfbwbxhfmygs.supabase.co/functions/v1/notify-garage</code> and performs JWT token exchange with Google OAuth using the <code>FCM_SERVICE_ACCOUNT</code> secret.
+        </p>
+        <pre class="code-block"><code>// Supabase Database Webhook payload format received by notify-garage:
+{
+  "type": "INSERT",
+  "table": "garage_notifications",
+  "record": {
+    "id": "notif_987654",
+    "garage_id": "00000000-0000-0000-0000-000000000000",
+    "kind": "booking",
+    "title": "New Booking Request",
+    "body": "Customer booked Periodic Service for Swift (RJ18AB1234)",
+    "route": "/bookings"
+  }
+}</code></pre>
+      </div>
+    </section>
+
+    <!-- Section 4: All APIs & RPC Reference -->
+    <section class="doc-section" id="apis">
+      <div class="section-header">
+        <h2><span class="sec-icon">⚡</span> 4. Complete API & RPC Suite</h2>
+      </div>
+
+      <div class="search-input-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="apiSearchInput" placeholder="Filter APIs by name, route, or functionality (e.g. 'save_job_card', 'attendance', 'nearby')...">
+      </div>
+
+      <div class="table-container">
+        <table class="data-table" id="apiTable">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Endpoint / Function</th>
+              <th>Authentication</th>
+              <th>Parameters</th>
+              <th>Business Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/save_job_card</code></td>
+              <td>Bearer JWT (Staff/Owner)</td>
+              <td><code>{ "payload": { card, items, payments } }</code></td>
+              <td>Single-transaction atomic save for job card, lines, and payment advances.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/shared_card</code></td>
+              <td>Public Anon Key</td>
+              <td><code>{ "tok": "&lt;192_BIT_TOKEN&gt;" }</code></td>
+              <td>Public read of vehicle bill for WhatsApp <code>/j/:token</code> link without login.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/garage_snapshot</code></td>
+              <td>Bearer JWT (Staff/Owner)</td>
+              <td><code>{ "gid": "&lt;GARAGE_UUID&gt;" }</code></td>
+              <td>Fetches complete role-filtered offline cache for instant app startup.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/nearby_garages</code></td>
+              <td>Public Anon Key / Customer</td>
+              <td><code>{ "in_lat": 30.73, "in_lng": 76.77, "radius_km": 15 }</code></td>
+              <td>Finds verified garages within customer GPS radius.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/set_garage_location</code></td>
+              <td>Bearer JWT (Owner)</td>
+              <td><code>{ "gid": "...", "lat": 30.7333, "lng": 76.7794 }</code></td>
+              <td>Saves exact workshop GPS coordinates for customer discovery.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/read_garage_notifications</code></td>
+              <td>Bearer JWT (Staff/Owner)</td>
+              <td><code>{ "ids": ["notif_uuid_1"] }</code></td>
+              <td>Marks alerts as read across all counter handsets simultaneously.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/punch_attendance</code></td>
+              <td>Bearer JWT (Staff)</td>
+              <td><code>{ "payload": { staff_id, lat, lng, type } }</code></td>
+              <td>Clock-in / Clock-out with GPS geofence distance verification.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/issue_customer_code</code></td>
+              <td>Bearer JWT (Counter)</td>
+              <td><code>{ "cid": "&lt;CUSTOMER_ID&gt;" }</code></td>
+              <td>Generates 6-digit one-time code to link customer app at counter.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/redeem_customer_code</code></td>
+              <td>Bearer JWT (Customer)</td>
+              <td><code>{ "entered": "123456" }</code></td>
+              <td>Customer redeems code to link entire past service history.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/register_garage_device</code></td>
+              <td>Bearer JWT (Staff/Owner)</td>
+              <td><code>{ "tok": "&lt;FCM_TOKEN&gt;", "plat": "android" }</code></td>
+              <td>Registers workshop handset token for FCM push alerts.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/rest/v1/rpc/register_customer_device</code></td>
+              <td>Bearer JWT (Customer)</td>
+              <td><code>{ "tok": "&lt;FCM_TOKEN&gt;", "plat": "android" }</code></td>
+              <td>Registers customer phone for background vehicle ready alerts.</td>
+            </tr>
+            <tr>
+              <td><span class="method-badge method-post">POST</span></td>
+              <td><code>/functions/v1/notify-garage</code></td>
+              <td>Header: <code>x-webhook-secret</code></td>
+              <td>Webhook payload (table, record)</td>
+              <td>Edge Function FCM dispatcher triggered on database INSERT.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Sample cURL Request -->
+      <div class="card" style="margin-top: 20px;">
+        <div class="card-title">
+          <span>Standard API Request Format (cURL Example)</span>
+          <span class="tag">PostgREST Protocol</span>
+        </div>
+        <pre class="code-block"><code>curl -X POST "https://zlrmcrhwtfbwbxhfmygs.supabase.co/rest/v1/rpc/shared_card" \
+  -H "apikey: sb_publishable_IJGQOXtE8tr7b_IgIi5cdQ_wDs6oFl7" \
+  -H "Authorization: Bearer sb_publishable_IJGQOXtE8tr7b_IgIi5cdQ_wDs6oFl7" \
+  -H "Content-Type: application/json" \
+  -d '{"tok": "7a8b9c0d1e2f3a4b5c6d7e8f"}'</code></pre>
+      </div>
+    </section>
+
+    <!-- Section 5: "What to Paste Where" Checklist -->
+    <section class="doc-section" id="paste-guide">
+      <div class="section-header">
+        <h2><span class="sec-icon">📋</span> 5. Step-by-Step Dashboard Setup & "What to Paste Where"</h2>
+      </div>
+
+      <div class="stepper">
+        <!-- Step 1 -->
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <div class="step-title">Supabase Authentication Redirect URLs</div>
+            <div class="step-desc">Go to <strong>Authentication → URL Configuration → Redirect URLs</strong> and add all 4 items:</div>
+            <pre class="code-block"><code>com.balajiautomobiles.garage://login-callback
+com.balajiautomobiles.customer://login-callback
+com.garagepro.garageproadmin://login-callback
+com.garagepro.garagepro://login-callback</code></pre>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <div class="step-title">Supabase SQL Editor: Account & Workshop Initialization</div>
+            <div class="step-desc">Run this in the <strong>SQL Editor</strong> to ensure <code>balajiautomobiles088@gmail.com</code> has password <code>automobiles@088*</code>:</div>
+            <pre class="code-block"><code>update auth.users
+   set encrypted_password = crypt('automobiles@088*', gen_salt('bf')),
+       email_confirmed_at = coalesce(email_confirmed_at, now()),
+       updated_at         = now()
+ where lower(email) = 'balajiautomobiles088@gmail.com';</code></pre>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <div class="step-title">Google Cloud Console: OAuth Web & Android Clients</div>
+            <div class="step-desc">In <strong>APIs & Services → Credentials</strong>:</div>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">
+              • Add Authorised Redirect URI: <code>https://zlrmcrhwtfbwbxhfmygs.supabase.co/auth/v1/callback</code><br>
+              • Add Android Client with SHA-1: <code>83:99:64:B6:0E:36:1D:AB:E1:92:2A:F5:8D:BC:41:21:0B:20:19:41</code>
+            </p>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <div class="step-title">Supabase Edge Function: <code>notify-garage</code> Secrets</div>
+            <div class="step-desc">In <strong>Edge Functions → Secrets</strong>, add the following two environment variables:</div>
+            <div class="cred-row">
+              <div class="cred-label">Secret Name: WEBHOOK_SECRET</div>
+              <div class="cred-box"><span class="val">Your 32-character hex secret string</span><button class="copy-btn" data-copy="WEBHOOK_SECRET">Copy Name</button></div>
+            </div>
+            <div class="cred-row">
+              <div class="cred-label">Secret Name: FCM_SERVICE_ACCOUNT</div>
+              <div class="cred-box"><span class="val">Entire contents of Firebase Service Account JSON</span><button class="copy-btn" data-copy="FCM_SERVICE_ACCOUNT">Copy Name</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="step-card">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <div class="step-title">Supabase Database Webhooks: Booking & Update Triggers</div>
+            <div class="step-desc">In <strong>Database → Webhooks → Create Hook</strong>, add these two entries:</div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Hook Name</th>
+                    <th>Target Table</th>
+                    <th>Event</th>
+                    <th>Type</th>
+                    <th>Header</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>notify-workshop</code></td>
+                    <td><code>public.garage_notifications</code></td>
+                    <td>INSERT</td>
+                    <td>Edge Function (notify-garage)</td>
+                    <td><code>x-webhook-secret: &lt;WEBHOOK_SECRET&gt;</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>notify-customer</code></td>
+                    <td><code>public.customer_alerts</code></td>
+                    <td>INSERT</td>
+                    <td>Edge Function (notify-garage)</td>
+                    <td><code>x-webhook-secret: &lt;WEBHOOK_SECRET&gt;</code></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 6: Roles & Permissions (RBAC) -->
+    <section class="doc-section" id="rbac">
+      <div class="section-header">
+        <h2><span class="sec-icon">🛡️</span> 6. Role-Based Access Control (RBAC)</h2>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Platform Directory</th>
+              <th>Workshop Settings</th>
+              <th>Job Cards</th>
+              <th>Counter Sales</th>
+              <th>Purchase Cost & Profit</th>
+              <th>Billing & Ledger</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Super Admin</strong></td>
+              <td>✅ Full Control</td>
+              <td>✅ Global</td>
+              <td>✅ All</td>
+              <td>✅ Yes</td>
+              <td>✅ Yes</td>
+              <td>✅ Global</td>
+            </tr>
+            <tr>
+              <td><strong>Owner / Admin</strong></td>
+              <td>❌ No</td>
+              <td>✅ Full Workshop</td>
+              <td>✅ All</td>
+              <td>✅ Yes</td>
+              <td>✅ Yes</td>
+              <td>✅ Full</td>
+            </tr>
+            <tr>
+              <td><strong>Manager</strong></td>
+              <td>❌ No</td>
+              <td>❌ No</td>
+              <td>✅ All</td>
+              <td>✅ Yes</td>
+              <td>❌ Hidden</td>
+              <td>✅ Billing Only</td>
+            </tr>
+            <tr>
+              <td><strong>Mechanic</strong></td>
+              <td>❌ No</td>
+              <td>❌ No</td>
+              <td>✅ Own Cards Only</td>
+              <td>❌ No</td>
+              <td>❌ Hidden</td>
+              <td>❌ No</td>
+            </tr>
+            <tr>
+              <td><strong>Counter / Store</strong></td>
+              <td>❌ No</td>
+              <td>❌ No</td>
+              <td>✅ Create/Edit</td>
+              <td>✅ Yes</td>
+              <td>❌ Hidden</td>
+              <td>❌ No</td>
+            </tr>
+            <tr>
+              <td><strong>Accountant</strong></td>
+              <td>❌ No</td>
+              <td>❌ No</td>
+              <td>👁️ Read Only</td>
+              <td>❌ No</td>
+              <td>❌ Hidden</td>
+              <td>✅ Invoices & Reports</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 7: GST & Invoicing Engine -->
+    <section class="doc-section" id="gst-invoicing">
+      <div class="section-header">
+        <h2><span class="sec-icon">🧾</span> 7. GST Engine & Invoice Templates</h2>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">
+            <span>Automated Indian GST Rules</span>
+            <span class="tag">Tax Compliance</span>
+          </div>
+          <ul style="padding-left: 20px; font-size: 13.5px; color: var(--text-muted); line-height: 1.8;">
+            <li><strong>Intra-State:</strong> Splits tax 50/50 into CGST + SGST (e.g. 18% = 9% CGST + 9% SGST).</li>
+            <li><strong>Inter-State:</strong> Applies full tax slab as IGST (e.g. 18% IGST) based on customer state code.</li>
+            <li><strong>Inclusive vs Exclusive Pricing:</strong> Toggleable per job card. Inclusive calculates backwards without shifting total.</li>
+            <li><strong>HSN/SAC Code Rollups:</strong> Automatic grouping for GSTR-1 quarterly filing.</li>
+            <li><strong>Auto Rounding:</strong> Exact rupee round-off printed on a dedicated line item.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>6 Built-in PDF Invoice Themes</span>
+            <span class="tag">Settings → Invoice Themes</span>
+          </div>
+          <ul style="padding-left: 20px; font-size: 13.5px; color: var(--text-muted); line-height: 1.8;">
+            <li><strong>Default (Original):</strong> Standard workshop letterhead with clean table structure.</li>
+            <li><strong>Default (Two Logos):</strong> Dual branding for workshop + spare parts brand partner (Bosch, Castrol).</li>
+            <li><strong>Luxury:</strong> Dark accent typography, fine border grids, executive aesthetic.</li>
+            <li><strong>Advanced GST (Tally Style):</strong> Formal tax accountant format with complete HSN summary block.</li>
+            <li><strong>Billbook:</strong> Classic two-column counter slip layout.</li>
+            <li><strong>Simple:</strong> Minimalist single-sheet bill for routine services.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 8: Release Artifacts & APKs -->
+    <section class="doc-section" id="artifacts">
+      <div class="section-header">
+        <h2><span class="sec-icon">🚀</span> 8. Release Artifacts & Client Deliverables</h2>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Artifact Name</th>
+              <th>Target Audience</th>
+              <th>Repository File Location</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Balaji Admin APK v1.0.10</strong></td>
+              <td>Workshop Owner, Staff, Counter</td>
+              <td><code>release-apks/balaji-admin-1.0.10-arm64.apk</code></td>
+              <td><span class="status-badge live">Verified Production</span></td>
+            </tr>
+            <tr>
+              <td><strong>Balaji Car APK v1.0.4</strong></td>
+              <td>Customers & Vehicle Owners</td>
+              <td><code>release-apks/balaji-automobiles-1.0.4-arm64.apk</code></td>
+              <td><span class="status-badge live">Verified Production</span></td>
+            </tr>
+            <tr>
+              <td><strong>Admin Walkthrough Video</strong></td>
+              <td>Workshop Staff Training</td>
+              <td><code>qa-evidence/video/admin-hindi-guide.mp4</code></td>
+              <td><span class="status-badge client">4:35 Hinglish Narration</span></td>
+            </tr>
+            <tr>
+              <td><strong>Customer App Walkthrough</strong></td>
+              <td>Customer Onboarding</td>
+              <td><code>qa-evidence/video/user-hindi-guide.mp4</code></td>
+              <td><span class="status-badge client">1:30 Hinglish Narration</span></td>
+            </tr>
+            <tr>
+              <td><strong>Public Web Portal</strong></td>
+              <td>Public & WhatsApp Link Viewers</td>
+              <td><code>https://balajiautomobiles.in</code></td>
+              <td><span class="status-badge live">Active / Ready</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 9: Health Checks & FAQs -->
+    <section class="doc-section" id="troubleshooting">
+      <div class="section-header">
+        <h2><span class="sec-icon">🛠️</span> 9. System Health Checks & FAQs</h2>
+      </div>
+
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title">
+          <span>One-Click Verification SQL Diagnostic</span>
+          <span class="tag">Run in Supabase SQL Editor</span>
+        </div>
+        <pre class="code-block"><code>-- Check 1: Super Admin & Owner Account
+select u.email, u.email_confirmed_at is not null as email_confirmed, p.role
+  from auth.users u
+  join public.profiles p on p.id = u.id
+ where lower(u.email) = 'balajiautomobiles088@gmail.com';
+
+-- Check 2: Workshop Listing & GPS Verification
+select name, phone, city, pin, lat, lng, listed, verified
+  from public.garages
+ where lower(email) = 'balajiautomobiles088@gmail.com';
+
+-- Check 3: Registered Push Handset Count
+select count(*) as active_workshop_handsets from public.garage_devices;
+select count(*) as active_customer_phones from public.customer_devices;</code></pre>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title" style="color: var(--accent-amber);">Q: Workshop not showing up in search?</div>
+          <p style="font-size: 13.5px; color: var(--text-muted);">
+            Ensure GPS coordinates are set. Open the Admin Console → <strong>Settings → Workshop Details → Use Current Location → Save</strong>. A workshop without a latitude/longitude pin is excluded from customer radius searches.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="color: var(--accent-amber);">Q: Background push alert didn't ring phone?</div>
+          <p style="font-size: 13.5px; color: var(--text-muted);">
+            Check Android notification permissions. On Xiaomi, Vivo, or Oppo handsets, ensure the app is granted <strong>Autostart</strong> and <strong>Unrestricted Battery</strong> permissions in Android device settings.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer style="margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border-color); text-align: center; color: var(--text-dim); font-size: 13px;">
+      <p>Balaji Automobiles Workshop Management Ecosystem — Production Release 1.0.0</p>
+      <p style="margin-top: 4px;">Delivered by System Engineering Team | All Rights Reserved.</p>
+    </footer>
+
+  </main>
+
+  <!-- Interactive JavaScript -->
+  <script>
+    // Copy button functionality
+    document.querySelectorAll('.copy-btn').forEach(button => {
+      button.addEventListener('click', () => {
+        const textToCopy = button.getAttribute('data-copy');
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          const originalText = button.textContent;
+          button.textContent = 'Copied!';
+          button.classList.add('copied');
+          setTimeout(() => {
+            button.textContent = originalText;
+            button.classList.remove('copied');
+          }, 2000);
+        });
+      });
+    });
+
+    // Theme Toggle
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
+    let isDark = true;
+    themeToggleBtn.addEventListener('click', () => {
+      isDark = !isDark;
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    });
+
+    // API Search Filter
+    const searchInput = document.getElementById('apiSearchInput');
+    const tableRows = document.querySelectorAll('#apiTable tbody tr');
+
+    searchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      tableRows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(term) ? '' : 'none';
+      });
+    });
+
+    // Active Navigation Link on Scroll
+    const sections = document.querySelectorAll('section.doc-section, .hero-banner');
+    const navItems = document.querySelectorAll('.nav-item');
+
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        if (pageYOffset >= sectionTop - 120) {
+          current = section.getAttribute('id');
+        }
+      });
+
+      navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === `#${current}`) {
+          item.classList.add('active');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

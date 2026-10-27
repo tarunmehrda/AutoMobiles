@@ -20,9 +20,13 @@ class DraftDentsPage extends StatefulWidget {
     super.key,
     required this.marks,
     this.shape = VehicleShape.fourWheeler,
+    this.initialArea,
   });
 
   final List<DentMark> marks;
+
+  /// The face to open on — the one the counter tapped on the intake.
+  final VehicleArea? initialArea;
 
   /// What the counter said the vehicle is, so the sheet opens on the right
   /// body instead of on a guess made from the marque.
@@ -49,6 +53,7 @@ class _DraftDentsPageState extends State<DraftDentsPage> {
   Widget build(BuildContext context) {
     return DentScaffold(
       title: 'Dent Marks'.tr,
+      initialArea: widget.initialArea,
       marks: _marks,
       kind: _kind,
       severity: _severity,
@@ -109,9 +114,11 @@ class DentScaffold extends StatefulWidget {
     required this.onErased,
     required this.onDiscard,
     required this.onSave,
+    this.initialArea,
   });
 
   final String title;
+  final VehicleArea? initialArea;
   final List<DentMark> marks;
   final VehicleKind kind;
   final DentSeverity severity;
@@ -130,7 +137,7 @@ class DentScaffold extends StatefulWidget {
 
 class _DentScaffoldState extends State<DentScaffold> {
   DentMode _mode = DentMode.part;
-  VehicleArea _area = VehicleArea.driver;
+  late VehicleArea _area = widget.initialArea ?? VehicleArea.driver;
 
   @override
   Widget build(BuildContext context) {

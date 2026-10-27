@@ -64,36 +64,49 @@ extension DocSectionX on DocSection {
 
   /// What the template starts with ticked.
   ///
-  /// The detailed job card is the one built to carry the whole story, so it
-  /// starts with everything on. The tax invoice and the simple bill start as
-  /// bills — the counter ticks the rest on when a particular customer wants
-  /// it. The rolls stay short because the paper is.
+  /// The bills — estimate and invoice — never start with the intake story:
+  /// the customer voice, the accessories and the damage marks are what came
+  /// in at the counter, and a customer (or the company paying) wants a bill,
+  /// not a diary. They stay one switch away on the share sheet. Beyond that
+  /// the detailed template starts with everything else on, and the rolls stay
+  /// short because the paper is.
   ///
-  /// Handover photographs are the exception: they ride on every A4 template
-  /// from the start. Somebody who has stood in front of a vehicle and shot it
-  /// has already decided the pictures belong on the paperwork, and a bill
-  /// that quietly leaves them off reads as the camera having failed. A card
-  /// with no photographs on it prints no block, so this costs the shops that
-  /// do not use them nothing.
-  bool defaultOn(InvoiceFormat format, DocKind kind) {
+  /// Handover photographs ride on every A4 bill from the start. Somebody who
+  /// has stood in front of a vehicle and shot it has already decided the
+  /// pictures belong on the paperwork, and a bill that quietly leaves them
+  /// off reads as the camera having failed. A card with no photographs on it
+  /// prints no block, so this costs the shops that do not use them nothing.
+  ///
+  /// The floor copy comes in two flavours on one [DocKind]: the mechanic's
+  /// carries the work and nothing else, and the job card copy handed to the
+  /// customer at check-in carries the intake story too — see [jobCardCopy].
+  bool defaultOn(
+    InvoiceFormat format,
+    DocKind kind, {
+    bool jobCardCopy = false,
+  }) {
     if (!availableOn(format, kind)) return false;
     if (kind == DocKind.mechanicCopy) {
-      // The floor copy is the job, not the bill.
-      return this != DocSection.sms;
-    }
-    return switch (format) {
-      InvoiceFormat.detailedA4 => true,
-      InvoiceFormat.taxA4 => const {
-        DocSection.odometer,
-        DocSection.mechanics,
-        DocSection.photos,
-        DocSection.payments,
-        DocSection.paymentQr,
-      }.contains(this),
-      InvoiceFormat.simpleA4 => const {
+      if (jobCardCopy) return this != DocSection.sms;
+      return const {
         DocSection.odometer,
         DocSection.mechanics,
         DocSection.voices,
+        DocSection.workNote,
+      }.contains(this);
+    }
+    if (const {
+      DocSection.voices,
+      DocSection.accessories,
+      DocSection.dents,
+    }.contains(this)) {
+      return false;
+    }
+    return switch (format) {
+      InvoiceFormat.detailedA4 => true,
+      InvoiceFormat.taxA4 || InvoiceFormat.simpleA4 => const {
+        DocSection.odometer,
+        DocSection.mechanics,
         DocSection.photos,
         DocSection.payments,
         DocSection.paymentQr,
@@ -107,9 +120,13 @@ extension DocSectionX on DocSection {
   }
 
   /// Every block this template starts with.
-  static Set<DocSection> defaultsFor(InvoiceFormat format, DocKind kind) => {
+  static Set<DocSection> defaultsFor(
+    InvoiceFormat format,
+    DocKind kind, {
+    bool jobCardCopy = false,
+  }) => {
     for (final s in DocSection.values)
-      if (s.defaultOn(format, kind)) s,
+      if (s.defaultOn(format, kind, jobCardCopy: jobCardCopy)) s,
   };
 
   /// The blocks that can be offered at all on this template.

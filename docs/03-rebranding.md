@@ -36,24 +36,31 @@ an accent that matches in one app and not the other reads as a fake.
 Drop replacements in, same filenames, and nothing else has to change:
 
 ```
-<app>/assets/logo/mark_light.png  the mark inked for paper coloured surfaces
-<app>/assets/logo/mark_dark.png   the same mark in amber, for carbon ones
+<app>/assets/logo/mark_light.png  the mark for paper coloured surfaces
+<app>/assets/logo/mark_dark.png   the mark for carbon ones
 <app>/assets/logo/icon.png        the mark pre-composited on its carbon tile
 <app>/assets/video/intro.mp4      splash background (console only)
 ```
 
 Both apps carry the same three files. The two cuts must be the same artwork at the
 same size — they are swapped when the theme flips, so anything that does not
-register pixel-for-pixel shows up as a jump. Square, at least 1024x1024. There is
-no horizontal lockup any more: the wordmark under the mark on the splash and the
-sign-in sheet is set in type by `BrandLogo`, not baked into a file.
+register pixel-for-pixel shows up as a jump. Square, at least 1024x1024, on a
+transparent ground. The current Balaji emblem carries its own wordmark and was
+drawn for a dark ground, so both cuts are the same file byte for byte, `BrandLogo`
+paints the mark alone (no typed wordmark under it), and `BrandBadge` always sits it
+on the carbon plate. A mark without its name baked in would want the typed
+wordmark back in `BrandLogo`.
 
 The platform icons are cut from `mark_dark.png` and have to be regenerated with it
-— `mipmap-*/ic_launcher*.png`, `drawable-*/splash_logo.png`, the iOS
-`AppIcon.appiconset`, and `web/icons/`. The geometry the current set was cut at:
-the mark at 65.8% of a carbon square for the launcher and iOS, 56.1% on
-transparent for the adaptive foreground, 43.9% for the maskable web icon, and
-edge to edge for the splash.
+— `mipmap-*/ic_launcher*.png`, `drawable-*/splash_logo.png`,
+`drawable-*/ic_stat_notify.png` (white silhouette of the mark's alpha), the iOS
+`AppIcon.appiconset` and `LaunchImage.imageset`, `web/icons/`, `web/favicon.png`,
+and the console's `windows/runner/resources/app_icon.ico`. The geometry the current
+set was cut at, with the mark trimmed to its visible pixels: its longer side at 86%
+of a carbon square for the launcher, iOS, and web icons; every visible pixel within
+a 47% radius for the round launcher, the 33dp safe zone of the 108dp adaptive
+foreground, and the 40% radius for the maskable web icon; edge to edge for the
+splash (120dp) and the iOS launch image (120pt).
 
 ---
 

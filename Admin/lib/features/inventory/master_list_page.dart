@@ -130,6 +130,7 @@ class _MasterListPageState extends ConsumerState<MasterListPage> {
                         ),
                         const SizedBox(width: Gap.md),
                         Expanded(
+                          flex: 2,
                           child: Text(
                             Tr.plural(
                               low.length,
@@ -141,10 +142,18 @@ class _MasterListPageState extends ConsumerState<MasterListPage> {
                             ),
                           ),
                         ),
-                        Text(
-                          _lowOnly ? 'Show all'.tr : 'Show only these'.tr,
-                          style: AppType.labelS.c(
-                            _lowOnly ? Colors.white : p.warning,
+                        const SizedBox(width: Gap.sm),
+                        // Squeezed beside the count on a narrow phone, this
+                        // used to wrap the count one word per line.
+                        Flexible(
+                          child: Text(
+                            _lowOnly ? 'Show all'.tr : 'Show only these'.tr,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: AppType.labelS.c(
+                              _lowOnly ? Colors.white : p.warning,
+                            ),
                           ),
                         ),
                       ],
@@ -155,7 +164,7 @@ class _MasterListPageState extends ConsumerState<MasterListPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.page),
               child: GSegmented<LineKind>(
-                options: LineKind.values,
+                options: kBillKinds,
                 selected: _kind,
                 onSelect: (k) => setState(() => _kind = k),
                 labelOf: (k) => k.label,
@@ -234,7 +243,7 @@ class _MasterListPageState extends ConsumerState<MasterListPage> {
         item.stock.toStringAsFixed(0),
         item.unit,
       ]),
-      child: Padding(
+      child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(
           Gap.page,
           Gap.lg,
@@ -470,23 +479,30 @@ class _MasterRow extends StatelessWidget {
                   Row(
                     children: [
                       if (item.partNo.isNotEmpty) ...[
-                        Text(
-                          item.partNo,
-                          style: AppType.labelS.s(10.5).c(p.inkFaint),
+                        Flexible(
+                          child: Text(
+                            item.partNo,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.labelS.s(10.5).c(p.inkFaint),
+                          ),
                         ),
                         const SizedBox(width: Gap.sm),
                       ],
                       if (item.tracksStock)
-                        GPill(
-                          label: item.out
-                              ? 'Out of stock'.tr
-                              : '${item.stock.toStringAsFixed(0)} ${item.unit}',
-                          compact: true,
-                          tone: item.out
-                              ? GTone.danger
-                              : item.low
-                              ? GTone.warning
-                              : GTone.success,
+                        Flexible(
+                          child: GPill(
+                            label: item.out
+                                ? 'Out of stock'.tr
+                                : '${item.stock.toStringAsFixed(0)} '
+                                      '${item.unit}',
+                            compact: true,
+                            tone: item.out
+                                ? GTone.danger
+                                : item.low
+                                ? GTone.warning
+                                : GTone.success,
+                          ),
                         ),
                     ],
                   ),
@@ -497,7 +513,18 @@ class _MasterRow extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(Fmt.money(item.rate), style: AppType.money.s(15).c(p.ink)),
+                // Capped, so a dear part shrinks its price rather than the
+                // name beside it.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 120),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      Fmt.money(item.rate),
+                      style: AppType.money.s(15).c(p.ink),
+                    ),
+                  ),
+                ),
                 if (onRestock != null)
                   Pressable(
                     onTap: onRestock,

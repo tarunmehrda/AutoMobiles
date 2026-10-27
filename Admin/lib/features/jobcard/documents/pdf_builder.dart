@@ -10,9 +10,11 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/utils/image_bytes.dart';
 import '../../../core/utils/upi_intent.dart';
 import '../../../core/utils/words.dart';
+import '../../../data/models/books.dart';
 import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import 'doc_sections.dart';
+import 'doc_text.dart';
 import 'invoice_format.dart';
 
 /// Renders a job card as a document that can be printed, saved or shared.
@@ -90,17 +92,28 @@ class JobPdf {
     Customer? customer,
     Vehicle? vehicle,
     List<Staff> staff = const [],
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
   }) async {
+    // The customer's copy of the floor document, rather than the mechanic's.
+    // Only a floor document has one.
+    final copy = jobCardCopy && kind == DocKind.mechanicCopy;
     final doc = pw.Document(
-      title: '${kind.label} ${card.number}',
+      title: '${docTitle(kind, format, jobCardCopy: copy)} ${card.number}',
       theme: await _typeface(),
     );
 
     // What the caller asked for, minus anything this paper cannot carry.
     final on = DocSectionX.carryOver(
-      sections ?? DocSectionX.defaultsFor(format, kind),
+      sections ?? DocSectionX.defaultsFor(format, kind, jobCardCopy: copy),
       format,
       kind,
+    );
+    final ctx = _Ctx(
+      kind: kind,
+      format: format,
+      jobCardCopy: copy,
+      banks: banks,
     );
 
     final names = <String>[
@@ -114,22 +127,10 @@ class JobPdf {
         : const <pw.ImageProvider>[];
 
     if (format.isThermal) {
-      doc.addPage(
-        _roll(kind, card, garage, format, customer, vehicle, names, on),
-      );
+      doc.addPage(_roll(ctx, card, garage, customer, vehicle, names, on));
     } else {
       doc.addPage(
-        _sheet(
-          kind,
-          card,
-          garage,
-          format,
-          customer,
-          vehicle,
-          names,
-          on,
-          photos,
-        ),
+        _sheet(ctx, card, garage, customer, vehicle, names, on, photos),
       );
     }
     return doc.save();
@@ -191,40 +192,63 @@ class JobPdf {
   // ===========================================================================
 
   static pw.Page _sheet(
-    DocKind kind,
+    _Ctx ctx,
     JobCard card,
     Garage garage,
-    InvoiceFormat format,
     Customer? customer,
     Vehicle? vehicle,
     List<String> mechanics,
     Set<DocSection> on,
     List<pw.ImageProvider> photos,
   ) {
+    final kind = ctx.kind;
     final priced = kind.showsPricing;
-    final taxed = format == InvoiceFormat.taxA4;
+    final floor = kind == DocKind.mechanicCopy;
+    final taxed = ctx.format == InvoiceFormat.taxA4;
+    final printBanks = priced ? invoiceBanks(ctx.banks) : const <BankAccount>[];
 
     return pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.fromLTRB(28, 26, 28, 22),
       footer: (context) => _footer(card, garage, context),
       build: (context) => [
-        _letterhead(kind, card, garage, format, customer),
+        _letterhead(ctx, card, garage),
         pw.SizedBox(height: 12),
-        _parties(card, customer, vehicle, mechanics, on),
-        pw.SizedBox(height: 12),
+        if (floor) ...[
+          // The floor copies: the vehicle, then the complaint beside the
+          // work, with no prices anywhere on the page.
+          _vehicleBlock(
+            card,
+            ctx.jobCardCopy ? customer : null,
+            vehicle,
+            mechanics,
+            on,
+            promised: ctx.jobCardCopy,
+          ),
+          pw.SizedBox(height: 12),
+          _voiceAndWork(card, on),
+          pw.SizedBox(height: 4),
+          ..._complaint(card, on.difference(const {DocSection.voices})),
+        ] else ...[
+          _parties(card, customer, vehicle, mechanics, on),
+          if (vehicle != null && insuranceRows(vehicle).isNotEmpty) ...[
+            pw.SizedBox(height: 8),
+            _insuranceBlock(vehicle),
+          ],
+          pw.SizedBox(height: 12),
 
-        // The complaint before the work, because that is the order it
-        // happened in and the order somebody reads the sheet in.
-        ..._complaint(card, on),
+          // The complaint before the work, because that is the order it
+          // happened in and the order somebody reads the sheet in.
+          ..._complaint(card, on),
 
-        if (card.items.isNotEmpty) ...[
-          if (taxed) _taxTable(card) else _plainTable(card, priced: priced),
-          pw.SizedBox(height: 10),
-        ] else
-          _empty(),
+          if (card.items.isNotEmpty) ...[
+            if (taxed) _taxTable(card) else _plainTable(card),
+            pw.SizedBox(height: 10),
+          ] else
+            _empty(),
+        ],
 
-        if (priced) _totals(card, taxed: taxed),
+        if (priced) _totals(card, kind: kind, taxed: taxed),
 
         ..._handover(card, on),
 
@@ -233,7 +257,14 @@ class JobPdf {
           _photoWall(photos, card),
         ],
 
-        ..._ledger(card, garage, kind, on),
+        ..._ledger(card, garage, kind, on, ctx.banks),
+
+        if (printBanks.isNotEmpty) ...[
+          pw.SizedBox(height: 10),
+          _listBlock('BANK DETAILS', [
+            for (final b in printBanks) 'Bank Details: {0}'.trf([bankLine(b)]),
+          ]),
+        ],
 
         if (card.nextServiceAt != null) ...[
           pw.SizedBox(height: 12),
@@ -243,25 +274,26 @@ class JobPdf {
         ],
 
         pw.SizedBox(height: 24),
-        _signatures(garage),
+        _signatures(
+          garage,
+          floor && !ctx.jobCardCopy
+              ? 'Mechanic signature'
+              : 'Customer signature',
+        ),
       ],
     );
   }
 
   // --- letterhead -----------------------------------------------------------
 
-  static pw.Widget _letterhead(
-    DocKind kind,
-    JobCard card,
-    Garage garage,
-    InvoiceFormat format,
-    Customer? customer,
-  ) {
-    final title = switch (format) {
-      InvoiceFormat.taxA4 => 'TAX INVOICE',
-      InvoiceFormat.detailedA4 => 'JOB CARD',
-      _ => kind.label.toUpperCase(),
-    };
+  static pw.Widget _letterhead(_Ctx ctx, JobCard card, Garage garage) {
+    final kind = ctx.kind;
+    final floor = kind == DocKind.mechanicCopy;
+    final title = docTitle(
+      kind,
+      ctx.format,
+      jobCardCopy: ctx.jobCardCopy,
+    ).toUpperCase();
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -334,14 +366,15 @@ class JobPdf {
                     ),
                   ),
                   pw.SizedBox(height: 5),
-                  _meta('No.', card.number),
+                  _meta(floor ? 'Job' : 'No.', card.number),
                   _meta('Date', Fmt.date(card.createdAt)),
-                  _meta('Time', Fmt.time(card.createdAt)),
-                  // Used to be on screen only, which is why a promised date
-                  // never showed up on anything the customer was handed.
-                  if (card.promisedAt != null)
+                  if (!floor) _meta('Time', Fmt.time(card.createdAt)),
+                  // The quote says when the vehicle will be ready; the
+                  // invoice does not, because by then it has gone out. The
+                  // floor copies carry it in their vehicle block instead.
+                  if (kind == DocKind.estimate && card.promisedAt != null)
                     _meta('Ready by', Fmt.fullDateTime(card.promisedAt!)),
-                  if (card.completedAt != null)
+                  if (!floor && card.completedAt != null)
                     _meta('Completed', Fmt.date(card.completedAt!)),
                 ],
               ),
@@ -401,6 +434,14 @@ class JobPdf {
                             color: _inkSoft,
                           ),
                         ),
+                      if (customer != null && customer.email.trim().isNotEmpty)
+                        pw.Text(
+                          customer.email.trim(),
+                          style: const pw.TextStyle(
+                            fontSize: 8.5,
+                            color: _inkSoft,
+                          ),
+                        ),
                       if (customer != null && customer.address.isNotEmpty)
                         pw.Text(
                           customer.address,
@@ -445,10 +486,7 @@ class JobPdf {
                       ),
                       if (vehicle != null)
                         pw.Text(
-                          [
-                            vehicle.brand,
-                            vehicle.model,
-                          ].where((e) => e.isNotEmpty).join(' '),
+                          vehicleMake(vehicle),
                           style: const pw.TextStyle(
                             fontSize: 9,
                             color: _inkSoft,
@@ -457,14 +495,6 @@ class JobPdf {
                       if (vehicle != null)
                         pw.Text(
                           _fuelAndGearbox(vehicle),
-                          style: const pw.TextStyle(
-                            fontSize: 8.5,
-                            color: _inkMuted,
-                          ),
-                        ),
-                      if (vehicle != null && _insurance(vehicle).isNotEmpty)
-                        pw.Text(
-                          _insurance(vehicle),
                           style: const pw.TextStyle(
                             fontSize: 8.5,
                             color: _inkMuted,
@@ -515,25 +545,139 @@ class JobPdf {
     if (vehicle.transmission != null) vehicle.transmission!.label,
   ].join(' · ');
 
-  /// `Insurance: ICICI Lombard · Policy 3001/1234`, or empty when neither
-  /// was taken down.
+  /// The policy a claim invoice is billed against, as label-and-value rows.
   ///
-  /// An insurance claim job is filed against these two, and the surveyor
-  /// reads them off the job card, so they go on the paper the moment the
-  /// counter has them. Either half prints on its own — a policy number with
-  /// no insurer is still the thing a claim is looked up by.
-  static String _insurance(Vehicle vehicle) {
-    final parts = [
-      vehicle.insurer.trim(),
-      if (vehicle.policyNo.trim().isNotEmpty)
-        'Policy {0}'.trf([vehicle.policyNo.trim()]),
-    ].where((e) => e.isNotEmpty);
-    return parts.isEmpty ? '' : 'Insurance: {0}'.trf([parts.join(' · ')]);
+  /// Its own block rather than a line under the vehicle: the surveyor reads
+  /// the policy dates and the insurer's GSTIN off it. Mirrors `_Insurance`
+  /// in the on-screen document.
+  static pw.Widget _insuranceBlock(Vehicle vehicle) =>
+      _factBlock('INSURANCE', insuranceRows(vehicle));
+
+  /// A bordered, banded block of `Label   value` rows lined up in a gutter.
+  static pw.Widget _factBlock(String title, List<(String, String)> rows) =>
+      pw.Container(
+        width: double.infinity,
+        decoration: pw.BoxDecoration(border: pw.Border.all(color: _line)),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            _band(title),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(8),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  for (final (label, value) in rows)
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.only(bottom: 1.5),
+                      child: pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.SizedBox(
+                            width: 90,
+                            child: pw.Text(
+                              label,
+                              style: const pw.TextStyle(
+                                fontSize: 8.5,
+                                color: _inkMuted,
+                              ),
+                            ),
+                          ),
+                          pw.Expanded(
+                            child: pw.Text(
+                              value,
+                              style: const pw.TextStyle(
+                                fontSize: 9,
+                                color: _ink,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// The floor copies' vehicle block: registration, make, fuel and how full,
+  /// kilometres. The job card copy also names the customer and says when the
+  /// vehicle was promised back. Mirrors `_VehicleDetails` on screen.
+  static pw.Widget _vehicleBlock(
+    JobCard card,
+    Customer? customer,
+    Vehicle? vehicle,
+    List<String> mechanics,
+    Set<DocSection> on, {
+    required bool promised,
+  }) {
+    final odo = on.contains(DocSection.odometer);
+    return _factBlock('VEHICLE DETAILS', [
+      ('Reg No', Fmt.plate(vehicle?.regNo ?? '—')),
+      if (vehicle != null && vehicleMake(vehicle).isNotEmpty)
+        ('Make', vehicleMake(vehicle)),
+      if (vehicle != null)
+        (
+          'Fuel',
+          odo
+              ? '${_fuelAndGearbox(vehicle)}  ·  ${card.fuelPercent}%'
+              : _fuelAndGearbox(vehicle),
+        ),
+      if (odo) ('KM', Fmt.km(card.odometerKm)),
+      if (customer != null)
+        (
+          'Customer',
+          [
+            customer.name,
+            customer.phone,
+          ].where((e) => e.trim().isNotEmpty).join('  ·  '),
+        ),
+      if (on.contains(DocSection.mechanics) && mechanics.isNotEmpty)
+        ('Assigned', mechanics.join(', ')),
+      if (promised && card.promisedAt != null)
+        ('Promised delivery', Fmt.fullDateTime(card.promisedAt!)),
+    ]);
+  }
+
+  /// What the customer said on the left, the work to do on the right —
+  /// names and quantities, never prices. Mirrors `_VoiceAndWork` on screen.
+  static pw.Widget _voiceAndWork(JobCard card, Set<DocSection> on) {
+    final work = card.items.isEmpty
+        ? ['No work listed yet.'.tr]
+        : [for (final e in card.items) floorLine(e)];
+    if (!on.contains(DocSection.voices)) {
+      return _listBlock('SPARE PARTS / JOBS', work);
+    }
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Expanded(
+          child: _listBlock(
+            'CUSTOMER VOICE',
+            card.voices.isEmpty ? ['Nothing noted.'.tr] : card.voices,
+          ),
+        ),
+        pw.SizedBox(width: 8),
+        pw.Expanded(child: _listBlock('SPARE PARTS / JOBS', work)),
+      ],
+    );
   }
 
   // --- tables ---------------------------------------------------------------
 
-  static pw.Widget _plainTable(JobCard card, {required bool priced}) {
+  /// `# | Particulars | GST | Qty | Rate | Amount` — the bill's own table.
+  /// GST is the line's own rate, because lines are taxed one by one now.
+  static pw.Widget _plainTable(JobCard card) {
+    const align = {
+      0: pw.Alignment.centerLeft,
+      1: pw.Alignment.centerLeft,
+      2: pw.Alignment.centerRight,
+      3: pw.Alignment.centerRight,
+      4: pw.Alignment.centerRight,
+      5: pw.Alignment.centerRight,
+    };
     return pw.TableHelper.fromTextArray(
       border: pw.TableBorder.all(color: _line, width: 0.5),
       headerDecoration: const pw.BoxDecoration(color: _accentSoft),
@@ -544,60 +688,47 @@ class JobPdf {
       ),
       cellStyle: const pw.TextStyle(fontSize: 9, color: _ink),
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-      headerAlignments: {
-        0: pw.Alignment.centerLeft,
-        1: pw.Alignment.centerLeft,
-        2: pw.Alignment.centerRight,
-        3: pw.Alignment.centerRight,
-        4: pw.Alignment.centerRight,
+      headerAlignments: align,
+      cellAlignments: align,
+      columnWidths: const {
+        0: pw.FixedColumnWidth(22),
+        1: pw.FlexColumnWidth(5),
+        2: pw.FixedColumnWidth(40),
+        3: pw.FixedColumnWidth(52),
+        4: pw.FixedColumnWidth(70),
+        5: pw.FixedColumnWidth(78),
       },
-      cellAlignments: {
-        0: pw.Alignment.centerLeft,
-        1: pw.Alignment.centerLeft,
-        2: pw.Alignment.centerRight,
-        3: pw.Alignment.centerRight,
-        4: pw.Alignment.centerRight,
-      },
-      columnWidths: priced
-          ? {
-              0: const pw.FixedColumnWidth(22),
-              1: const pw.FlexColumnWidth(5),
-              2: const pw.FixedColumnWidth(42),
-              3: const pw.FixedColumnWidth(70),
-              4: const pw.FixedColumnWidth(78),
-            }
-          : {
-              0: const pw.FixedColumnWidth(22),
-              1: const pw.FlexColumnWidth(5),
-              2: const pw.FixedColumnWidth(90),
-            },
-      headers: priced
-          ? ['#', 'Particulars', 'Qty', 'Rate', 'Amount']
-          : ['#', 'Particulars', 'Status'],
+      headers: const ['#', 'Particulars', 'GST', 'Qty', 'Rate', 'Amount'],
       data: [
         for (var i = 0; i < card.items.length; i++)
-          priced
-              ? [
-                  '${i + 1}',
-                  _itemName(card.items[i]),
-                  card.items[i].qtyLabel,
-                  Fmt.money2(card.items[i].rate),
-                  Fmt.money2(card.items[i].amount),
-                ]
-              : [
-                  '${i + 1}',
-                  _itemName(card.items[i]),
-                  card.items[i].state.label,
-                ],
+          [
+            '${i + 1}',
+            _itemName(card.items[i]),
+            lineGst(card.items[i], card),
+            qtyWithUnit(card.items[i]),
+            Fmt.money2(card.items[i].rate),
+            Fmt.money2(card.items[i].amount),
+          ],
       ],
     );
   }
 
-  /// The compliant one: taxable value per line with the tax split out.
+  /// The compliant one: taxable value per line with the tax split out, each
+  /// line at its own rate — a battery at 28% and the labour at 18% on the
+  /// same bill each show their own CGST and SGST.
   static pw.Widget _taxTable(JobCard card) {
-    final half = card.taxRate / 2;
-    final halfPct = (half * 100).toStringAsFixed(half * 100 % 1 == 0 ? 0 : 2);
-
+    const align = {
+      0: pw.Alignment.centerLeft,
+      1: pw.Alignment.centerLeft,
+      2: pw.Alignment.centerLeft,
+      3: pw.Alignment.centerRight,
+      4: pw.Alignment.centerRight,
+      5: pw.Alignment.centerRight,
+      6: pw.Alignment.centerRight,
+      7: pw.Alignment.centerRight,
+      8: pw.Alignment.centerRight,
+      9: pw.Alignment.centerRight,
+    };
     return pw.TableHelper.fromTextArray(
       border: pw.TableBorder.all(color: _line, width: 0.5),
       headerDecoration: const pw.BoxDecoration(color: _accentSoft),
@@ -608,74 +739,56 @@ class JobPdf {
       ),
       cellStyle: const pw.TextStyle(fontSize: 8, color: _ink),
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      cellAlignments: {
-        0: pw.Alignment.centerLeft,
-        1: pw.Alignment.centerLeft,
-        2: pw.Alignment.centerLeft,
-        3: pw.Alignment.centerRight,
-        4: pw.Alignment.centerRight,
-        5: pw.Alignment.centerRight,
-        6: pw.Alignment.centerRight,
-        7: pw.Alignment.centerRight,
-        8: pw.Alignment.centerRight,
+      cellAlignments: align,
+      headerAlignments: align,
+      columnWidths: const {
+        0: pw.FixedColumnWidth(18),
+        1: pw.FlexColumnWidth(4),
+        2: pw.FixedColumnWidth(42),
+        3: pw.FixedColumnWidth(30),
+        4: pw.FixedColumnWidth(34),
+        5: pw.FixedColumnWidth(48),
+        6: pw.FixedColumnWidth(52),
+        7: pw.FixedColumnWidth(44),
+        8: pw.FixedColumnWidth(44),
+        9: pw.FixedColumnWidth(54),
       },
-      headerAlignments: {
-        0: pw.Alignment.centerLeft,
-        1: pw.Alignment.centerLeft,
-        2: pw.Alignment.centerLeft,
-        3: pw.Alignment.centerRight,
-        4: pw.Alignment.centerRight,
-        5: pw.Alignment.centerRight,
-        6: pw.Alignment.centerRight,
-        7: pw.Alignment.centerRight,
-        8: pw.Alignment.centerRight,
-      },
-      columnWidths: {
-        0: const pw.FixedColumnWidth(18),
-        1: const pw.FlexColumnWidth(4),
-        2: const pw.FixedColumnWidth(42),
-        3: const pw.FixedColumnWidth(28),
-        4: const pw.FixedColumnWidth(50),
-        5: const pw.FixedColumnWidth(55),
-        6: const pw.FixedColumnWidth(48),
-        7: const pw.FixedColumnWidth(48),
-        8: const pw.FixedColumnWidth(58),
-      },
-      headers: [
+      headers: const [
         '#',
         'Particulars',
         'HSN/SAC',
+        'GST',
         'Qty',
         'Rate',
         'Taxable',
-        'CGST $halfPct%',
-        'SGST $halfPct%',
+        'CGST',
+        'SGST',
         'Total',
       ],
       data: [
         for (var i = 0; i < card.items.length; i++)
-          _taxRow(i, card.items[i], card, half),
+          _taxRow(i, card.items[i], card),
       ],
     );
   }
 
-  static List<String> _taxRow(int i, LineItem item, JobCard card, double half) {
+  static List<String> _taxRow(int i, LineItem item, JobCard card) {
     // The card's discount is on the bill as a whole, so it comes off each
     // line in the same proportion before the tax is worked out — otherwise
     // the line tax and the invoice tax do not agree.
-    final share = card.subTotal == 0 ? 0.0 : item.amount / card.subTotal;
-    final taxable = card.taxable * share;
-    final tax = taxable * half;
+    final taxable = lineTaxable(item, card);
+    final half = taxable * item.gstOn(card.taxRate) / 2;
     return [
       '${i + 1}',
       _itemName(item),
       item.partNo.isEmpty ? '998729' : item.partNo,
-      item.qtyLabel,
+      lineGst(item, card),
+      qtyWithUnit(item),
       Fmt.money2(item.rate),
       Fmt.money2(taxable),
-      Fmt.money2(tax),
-      Fmt.money2(tax),
-      Fmt.money2(taxable + tax * 2),
+      Fmt.money2(half),
+      Fmt.money2(half),
+      Fmt.money2(taxable + half * 2),
     ];
   }
 
@@ -687,7 +800,12 @@ class JobPdf {
 
   // --- totals ---------------------------------------------------------------
 
-  static pw.Widget _totals(JobCard card, {required bool taxed}) {
+  static pw.Widget _totals(
+    JobCard card, {
+    required DocKind kind,
+    required bool taxed,
+  }) {
+    final invoice = kind == DocKind.invoice;
     final half = card.taxAmount / 2;
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -725,15 +843,28 @@ class JobPdf {
               _totalRow('Sub total', Fmt.money2(card.subTotal)),
               if (card.discount > 0)
                 _totalRow('Discount', '− ${Fmt.money2(card.discount)}'),
-              if (taxed && card.taxRate > 0) ...[
+              // Each line taxed at its own rate (see `JobCard.taxAmount`),
+              // so tax can be due on a card with no rate of its own.
+              if (taxed && card.taxAmount > 0) ...[
                 _totalRow('Taxable value', Fmt.money2(card.taxable)),
                 _totalRow('CGST', Fmt.money2(half)),
                 _totalRow('SGST', Fmt.money2(half)),
               ] else if (card.taxAmount > 0)
-                _totalRow('Tax', Fmt.money2(card.taxAmount)),
-              _totalRow('Payable', Fmt.money2(card.total), strong: true),
-              _totalRow('Paid', Fmt.money2(card.paid)),
-              _totalRow('Balance', Fmt.money2(card.balance), strong: true),
+                _totalRow(taxLabel(card), Fmt.money2(card.taxAmount)),
+              _totalRow(
+                invoice ? 'Total' : 'Estimated total',
+                Fmt.money2(card.total),
+                strong: true,
+              ),
+              // The advance taken at check-in apart from what was paid at
+              // delivery, so the customer sees both, and what was left to
+              // pay after the advance.
+              if (invoice) ...[
+                _totalRow('Advance', Fmt.money2(card.advancePaid)),
+                _totalRow('Payable', Fmt.money2(payableAfterAdvance(card))),
+                _totalRow('Paid', Fmt.money2(paidExcludingAdvance(card))),
+                _totalRow('Balance', Fmt.money2(card.balance), strong: true),
+              ],
             ],
           ),
         ),
@@ -925,7 +1056,9 @@ class JobPdf {
     Garage garage,
     DocKind kind,
     Set<DocSection> on,
+    List<BankAccount> banks,
   ) {
+    final target = payTarget(garage, banks);
     final payments = on.contains(DocSection.payments)
         ? card.payments
         : const <Payment>[];
@@ -933,7 +1066,7 @@ class JobPdf {
     final pay =
         on.contains(DocSection.paymentQr) &&
         kind.showsPricing &&
-        garage.upiId.trim().isNotEmpty;
+        target.upiId.isNotEmpty;
 
     if (payments.isEmpty && sms.isEmpty && !pay) return const [];
 
@@ -986,7 +1119,7 @@ class JobPdf {
               ],
             ),
           ),
-          if (pay) ...[pw.SizedBox(width: 10), _payBox(card, garage)],
+          if (pay) ...[pw.SizedBox(width: 10), _payBox(card, target)],
         ],
       ),
     ];
@@ -1043,11 +1176,14 @@ class JobPdf {
   /// A settled bill gets the same box with no code in it. Printing a live
   /// collection code on a receipt that is already paid is how a customer pays
   /// twice, and the shop finds out a week later.
-  static pw.Widget _payBox(JobCard card, Garage garage) {
+  static pw.Widget _payBox(
+    JobCard card,
+    ({String upiId, String payee}) target,
+  ) {
     final due = card.balance;
     final uri = upiIntent(
-      upiId: garage.upiId,
-      payee: garage.name,
+      upiId: target.upiId,
+      payee: target.payee,
       amount: due,
       note: 'Job card {0}'.trf([card.number]),
     );
@@ -1110,7 +1246,7 @@ class JobPdf {
             ),
           pw.SizedBox(height: 2),
           pw.Text(
-            garage.upiId,
+            target.upiId,
             textAlign: pw.TextAlign.center,
             style: const pw.TextStyle(fontSize: 7, color: _inkMuted),
           ),
@@ -1139,9 +1275,9 @@ class JobPdf {
     child: pw.Text(text, style: const pw.TextStyle(fontSize: 9, color: _ink)),
   );
 
-  static pw.Widget _signatures(Garage garage) => pw.Row(
+  static pw.Widget _signatures(Garage garage, String who) => pw.Row(
     children: [
-      pw.Expanded(child: _signature('Customer signature')),
+      pw.Expanded(child: _signature(who)),
       pw.SizedBox(width: 40),
       pw.Expanded(child: _signature('For ${garage.name}')),
     ],
@@ -1200,19 +1336,25 @@ class JobPdf {
   /// than a dashed line comes out as a smudge. Everything is centred or in two
   /// columns, and the paper is as long as the bill needs.
   static pw.Page _roll(
-    DocKind kind,
+    _Ctx ctx,
     JobCard card,
     Garage garage,
-    InvoiceFormat format,
     Customer? customer,
     Vehicle? vehicle,
     List<String> mechanics,
     Set<DocSection> on,
   ) {
+    final kind = ctx.kind;
+    final format = ctx.format;
     final w = format.rollMm * PdfPageFormat.mm;
     final tight = format == InvoiceFormat.thermal58;
     final body = tight ? 7.0 : 8.0;
     final priced = kind.showsPricing;
+    final target = payTarget(garage, ctx.banks);
+    final printBanks = priced ? invoiceBanks(ctx.banks) : const <BankAccount>[];
+    // The quote and the customer's job card copy say when the vehicle is
+    // promised back; the invoice and the mechanic's copy do not.
+    final promise = kind == DocKind.estimate || ctx.jobCardCopy;
 
     pw.Widget center(String t, {double? size, bool bold = false}) => pw.Text(
       t,
@@ -1286,7 +1428,10 @@ class JobPdf {
           center('Ph: ${garage.phone}'),
           if (garage.gstin.isNotEmpty) center('GSTIN: ${garage.gstin}'),
           rule,
-          center(kind.label.toUpperCase(), bold: true),
+          center(
+            docTitle(kind, format, jobCardCopy: ctx.jobCardCopy).toUpperCase(),
+            bold: true,
+          ),
           rule,
           pair('No.', card.number),
           pair('Date', Fmt.date(card.createdAt)),
@@ -1304,8 +1449,11 @@ class JobPdf {
           // to wrap, which the right-hand side of a pair never does.
           if (vehicle != null) ...[
             pair('Vehicle', Fmt.plate(vehicle.regNo)),
+            if (vehicleMake(vehicle).isNotEmpty) left(vehicleMake(vehicle)),
             pair('', _fuelAndGearbox(vehicle)),
-            if (_insurance(vehicle).isNotEmpty) left(_insurance(vehicle)),
+            if (priced)
+              for (final (label, value) in insuranceRows(vehicle))
+                left('$label: $value'),
           ],
           if (on.contains(DocSection.odometer)) ...[
             pair('Km', Fmt.km(card.odometerKm)),
@@ -1313,7 +1461,7 @@ class JobPdf {
           ],
           if (on.contains(DocSection.mechanics) && mechanics.isNotEmpty)
             pair('Attended by', mechanics.join(', ')),
-          if (card.promisedAt != null)
+          if (promise && card.promisedAt != null)
             pair('Ready by', Fmt.dateTime(card.promisedAt!)),
           rule,
 
@@ -1359,11 +1507,11 @@ class JobPdf {
               ),
               if (priced)
                 pair(
-                  '  ${item.qtyLabel} × ${Fmt.money2(item.rate)}',
+                  '  ${qtyWithUnit(item)} × ${Fmt.money2(item.rate)} · GST ${lineGst(item, card)}',
                   Fmt.money2(item.amount),
                 )
               else
-                pair('  ${item.state.label}', ''),
+                pair('  × ${qtyWithUnit(item)}', ''),
             ],
 
           if (priced) ...[
@@ -1377,8 +1525,12 @@ class JobPdf {
             ],
             rule,
             pair('TOTAL', Fmt.money2(card.total), bold: true),
-            pair('Paid', Fmt.money2(card.paid)),
-            pair('Balance', Fmt.money2(card.balance), bold: true),
+            if (kind == DocKind.invoice) ...[
+              pair('Advance', Fmt.money2(card.advancePaid)),
+              pair('Payable', Fmt.money2(payableAfterAdvance(card))),
+              pair('Paid', Fmt.money2(paidExcludingAdvance(card))),
+              pair('Balance', Fmt.money2(card.balance), bold: true),
+            ],
             rule,
             center(Words.rupees(card.total)),
           ],
@@ -1407,7 +1559,7 @@ class JobPdf {
           if (on.contains(DocSection.paymentQr) &&
               priced &&
               card.balance > 0 &&
-              garage.upiId.trim().isNotEmpty) ...[
+              target.upiId.isNotEmpty) ...[
             rule,
             center('SCAN TO PAY ${Fmt.money2(card.balance)}', bold: true),
             pw.SizedBox(height: 4),
@@ -1419,8 +1571,8 @@ class JobPdf {
                 child: pw.BarcodeWidget(
                   barcode: pw.Barcode.qrCode(),
                   data: upiIntent(
-                    upiId: garage.upiId,
-                    payee: garage.name,
+                    upiId: target.upiId,
+                    payee: target.payee,
                     amount: card.balance,
                     note: 'Job card {0}'.trf([card.number]),
                   ),
@@ -1430,7 +1582,13 @@ class JobPdf {
               ),
             ),
             pw.SizedBox(height: 3),
-            center(garage.upiId),
+            center(target.upiId),
+          ],
+
+          if (printBanks.isNotEmpty) ...[
+            rule,
+            left('BANK DETAILS', bold: true),
+            for (final b in printBanks) left(bankLine(b)),
           ],
 
           if (card.nextServiceAt != null) ...[
@@ -1445,4 +1603,24 @@ class JobPdf {
       ),
     );
   }
+}
+
+/// What sort of document is being drawn, carried through the builders as one
+/// value rather than four loose arguments that every helper has to thread.
+class _Ctx {
+  const _Ctx({
+    required this.kind,
+    required this.format,
+    required this.jobCardCopy,
+    required this.banks,
+  });
+
+  final DocKind kind;
+  final InvoiceFormat format;
+
+  /// The customer's copy of the floor document, not the mechanic's.
+  final bool jobCardCopy;
+
+  /// The workshop's bank accounts, primary first.
+  final List<BankAccount> banks;
 }

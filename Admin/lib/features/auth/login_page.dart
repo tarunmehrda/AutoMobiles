@@ -22,6 +22,7 @@ import '../../core/widgets/pressable.dart';
 import '../../data/repo/auth_service.dart';
 import '../../state/admin_state.dart';
 import '../../state/auth_state.dart';
+import '../business/company_sheet.dart';
 import '../shared/google_mark.dart';
 
 enum _Mode { signIn, signUp }
@@ -45,6 +46,20 @@ class LoginPage extends ConsumerStatefulWidget {
 class _LoginPageState extends ConsumerState<LoginPage> {
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // Arrived here from "Switch company" or "Add company": open the form the
+    // owner was heading for, rather than make them find it.
+    final hint = loginHint.value;
+    if (hint != null) {
+      loginHint.value = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _email(email: hint.email, signUp: hint.signUp);
+      });
+    }
+  }
+
   Future<void> _google() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -62,7 +77,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   /// The email form, over the picture. It reports success by popping `true`, so
   /// the sheet is off the navigator before the router redirect runs.
-  Future<void> _email() async {
+  Future<void> _email({String email = '', bool signUp = false}) async {
     if (_busy) return;
     final signedIn = await showModalBottomSheet<bool>(
       context: context,
@@ -73,7 +88,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.92,
       ),
-      builder: (_) => const _EmailSheet(),
+      builder: (_) => _EmailSheet(email: email, signUp: signUp),
     );
     if (signedIn == true && mounted) context.go('/home');
   }
@@ -86,6 +101,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: BrandArt.carbon,
+        // Nothing on this page takes typing — the email form is a sheet that
+        // lifts itself — so the keyboard must not squeeze the picture and
+        // its buttons underneath.
+        resizeToAvoidBottomInset: false,
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -113,9 +132,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     return Stack(
       children: [
+        // Anchored to the bottom, and scrollable for the short phone with a
+        // large font that cannot fit the pitch and both buttons.
         Align(
           alignment: Alignment.bottomLeft,
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(
               Gap.page,
               Gap.xxl,
@@ -160,7 +181,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   child: _GlassCta(
                     label: 'Continue with email'.tr,
                     icon: Icons.alternate_email_rounded,
-                    onTap: _busy ? null : _email,
+                    onTap: _busy ? null : () => _email(),
                   ),
                 ),
                 if (!AppConfig.hasSupabase) ...[
@@ -297,9 +318,14 @@ class _GoogleCta extends StatelessWidget {
             else
               const GoogleMark(size: 21),
             const SizedBox(width: Gap.md),
-            Text(
-              'Continue with Google'.tr,
-              style: AppType.labelL.s(15.5).c(BrandArt.carbon),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Continue with Google'.tr,
+                  style: AppType.labelL.s(15.5).c(BrandArt.carbon),
+                ),
+              ),
             ),
           ],
         ),
@@ -339,7 +365,15 @@ class _GlassCta extends StatelessWidget {
           children: [
             Icon(icon, size: 19, color: Colors.white.withValues(alpha: 0.92)),
             const SizedBox(width: Gap.md),
-            Text(label, style: AppType.labelL.s(15.5).c(Colors.white)),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: AppType.labelL.s(15.5).c(Colors.white),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -458,7 +492,11 @@ class _OfflineNote extends StatelessWidget {
 /// sit on a photograph, not on the app canvas, so the shared [GField] and
 /// [GButton] need the dark palette to look right here.
 class _EmailSheet extends ConsumerStatefulWidget {
-  const _EmailSheet();
+  const _EmailSheet({this.email = '', this.signUp = false});
+
+  /// Typed in already — the account a company switch is heading for.
+  final String email;
+  final bool signUp;
 
   @override
   ConsumerState<_EmailSheet> createState() => _EmailSheetState();
@@ -470,9 +508,15 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
 
-  _Mode _mode = _Mode.signIn;
+  late _Mode _mode = widget.signUp ? _Mode.signUp : _Mode.signIn;
   bool _busy = false;
   bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _email.text = widget.email;
+  }
 
   @override
   void dispose() {

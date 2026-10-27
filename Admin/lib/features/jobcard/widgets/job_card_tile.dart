@@ -37,6 +37,8 @@ class JobCardTile extends ConsumerWidget {
     final customer = ref.watch(customerProvider(card.customerId));
     final vehicle = ref.watch(vehicleProvider(card.vehicleId));
     final stamp = card.stampFor(stampStatus ?? card.status);
+    // A mechanic's list is the work, not the takings.
+    final cost = ref.watch(accessProvider).seesCost;
 
     // The rail reads at a glance: red means money is still owed, amber means
     // it is running late, green means done and settled.
@@ -81,7 +83,7 @@ class JobCardTile extends ConsumerWidget {
                         style: AppType.labelS.s(9.5).c(p.inkMuted),
                       ),
                     ),
-                    if (card.paid > 0) ...[
+                    if (cost && card.paid > 0) ...[
                       const SizedBox(height: 5),
                       Text(
                         'Paid {0}'.trf([Fmt.money(card.paid)]),
@@ -128,51 +130,62 @@ class JobCardTile extends ConsumerWidget {
                               // counter actually looks for a card, and the
                               // plate two columns over only helps once you
                               // are already reading the right row.
-                              Column(
-                                children: [
-                                  GAvatar(
-                                    initials: Fmt.initials(
-                                      customer?.name ?? '?',
+                              // Held to the picture's width: a long card
+                              // number used to widen this column to a third
+                              // of the card and squeeze the name.
+                              SizedBox(
+                                width: 56,
+                                child: Column(
+                                  children: [
+                                    GAvatar(
+                                      initials: Fmt.initials(
+                                        customer?.name ?? '?',
+                                      ),
+                                      size: 38,
+                                      tone: GTone.neutral,
                                     ),
-                                    size: 38,
-                                    tone: GTone.neutral,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  ClipRRect(
-                                    borderRadius: R.all(R.xs),
-                                    child: Container(
-                                      width: 44,
-                                      height: 28,
-                                      color: p.surfaceSunken,
-                                      child: VehicleArt(
-                                        shape:
-                                            vehicle?.shape ??
-                                            VehicleShape.fourWheeler,
-                                        photo: VehicleMedia.photoFor(
-                                          vehicle?.brand,
-                                          vehicle?.model,
-                                          vehicle?.shape ??
-                                              VehicleShape.fourWheeler,
-                                        ),
+                                    const SizedBox(height: 4),
+                                    ClipRRect(
+                                      borderRadius: R.all(R.xs),
+                                      child: Container(
+                                        width: 44,
                                         height: 28,
-                                        tint: p.inkFaint,
-                                        // A list scrolls. Tracing a drawing
-                                        // on every row that comes into view
-                                        // is motion nobody asked for, and it
-                                        // replays each time the row recycles.
-                                        animate: false,
+                                        color: p.surfaceSunken,
+                                        child: VehicleArt(
+                                          shape:
+                                              vehicle?.shape ??
+                                              VehicleShape.fourWheeler,
+                                          photo: VehicleMedia.photoFor(
+                                            vehicle?.brand,
+                                            vehicle?.model,
+                                            vehicle?.shape ??
+                                                VehicleShape.fourWheeler,
+                                          ),
+                                          height: 28,
+                                          tint: p.inkFaint,
+                                          // A list scrolls. Tracing a drawing
+                                          // on every row that comes into view
+                                          // is motion nobody asked for, and it
+                                          // replays each time the row recycles.
+                                          animate: false,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    card.number,
-                                    style: AppType.labelS.s(9).c(p.inkFaint),
-                                  ),
-                                ],
+                                    const SizedBox(height: 4),
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        card.number,
+                                        maxLines: 1,
+                                        style: AppType.labelS.s(9).c(p.inkFaint),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                               const SizedBox(width: Gap.md),
                               Expanded(
+                                flex: 3,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -204,46 +217,64 @@ class JobCardTile extends ConsumerWidget {
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: Gap.sm),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    'Total'.tr,
-                                    style: AppType.labelS.s(10).c(p.inkFaint),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: Gap.sm,
-                                      vertical: 3,
+                              if (cost) const SizedBox(width: Gap.sm),
+                              // Capped, and at most two fifths of the row, so
+                              // a big bill shrinks its figures instead of
+                              // squeezing the name to nothing.
+                              if (cost)
+                                Flexible(
+                                  flex: 2,
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 116,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: p.surfaceSunken,
-                                      borderRadius: R.all(R.pill),
-                                    ),
-                                    child: Text(
-                                      Fmt.money(card.total),
-                                      style: AppType.money.s(15).c(p.ink),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    card.items.isEmpty
-                                        ? 'Not billed'.tr
-                                        : 'Due {0}'.trf([
-                                            Fmt.money(card.balance),
-                                          ]),
-                                    style: AppType.labelS
-                                        .s(10.5)
-                                        .c(
-                                          card.settled && card.items.isNotEmpty
-                                              ? p.success
-                                              : p.danger,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          'Total'.tr,
+                                          style: AppType.labelS.s(10).c(p.inkFaint),
                                         ),
+                                        const SizedBox(height: 3),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: Gap.sm,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: p.surfaceSunken,
+                                            borderRadius: R.all(R.pill),
+                                          ),
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              Fmt.money(card.total),
+                                              style: AppType.money.s(15).c(p.ink),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          card.items.isEmpty
+                                              ? 'Not billed'.tr
+                                              : 'Due {0}'.trf([
+                                                  Fmt.money(card.balance),
+                                                ]),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: AppType.labelS
+                                              .s(10.5)
+                                              .c(
+                                                card.settled &&
+                                                        card.items.isNotEmpty
+                                                    ? p.success
+                                                    : p.danger,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ],
-                              ),
+                                ),
                             ],
                           ),
                         ),

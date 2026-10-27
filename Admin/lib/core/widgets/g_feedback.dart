@@ -211,11 +211,18 @@ class GFeedback {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(title, style: AppType.d3.c(p.ink)),
+                                Text(
+                                  title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppType.d3.c(p.ink),
+                                ),
                                 if (subtitle != null) ...[
                                   const SizedBox(height: 3),
                                   Text(
                                     subtitle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                     style: AppType.bodyS.c(p.inkMuted),
                                   ),
                                 ],
@@ -271,7 +278,9 @@ class GFeedback {
         final t = toneOf(context, tone);
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(horizontal: Gap.xxl),
-          child: Padding(
+          // Scrolls rather than overflowing when a large font and a short
+          // screen leave it less room than it wants.
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(Gap.xxl),
             child: Column(
               mainAxisSize: MainAxisSize.min,

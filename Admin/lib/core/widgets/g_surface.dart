@@ -376,11 +376,20 @@ class GKeyValue extends StatelessWidget {
             ),
             const SizedBox(width: Gap.sm),
           ],
-          Text(
-            value,
-            style: emphasize
-                ? AppType.money.c(valueColor ?? p.ink)
-                : AppType.moneyS.c(valueColor ?? p.inkSoft),
+          // A long figure shrinks to fit instead of pushing the row off the
+          // edge of a narrow phone.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 170),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                style: emphasize
+                    ? AppType.money.c(valueColor ?? p.ink)
+                    : AppType.moneyS.c(valueColor ?? p.inkSoft),
+              ),
+            ),
           ),
         ],
       ),

@@ -351,6 +351,7 @@ class _Row extends ConsumerWidget {
     final p = context.c;
     final customer = ref.watch(customerProvider(card.customerId));
     final vehicle = ref.watch(vehicleProvider(card.vehicleId));
+    final cost = ref.watch(accessProvider).seesCost;
 
     return Pressable(
       onTap: () => context.push('/job/${card.id}'),
@@ -422,28 +423,44 @@ class _Row extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: Gap.sm),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (showStatus) ...[
-                  GPill(
-                    label: card.status.label,
-                    tone: GTone.info,
-                    compact: true,
-                  ),
-                  const SizedBox(height: 3),
+            // Capped, so a big bill shrinks rather than squeezing the name.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 112),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (showStatus) ...[
+                    GPill(
+                      label: card.status.label,
+                      tone: GTone.info,
+                      compact: true,
+                    ),
+                    const SizedBox(height: 3),
+                  ],
+                  if (cost) ...[
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        Fmt.money(card.total),
+                        style: AppType.money.c(p.ink),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    if (card.balance > 0)
+                      GPill(
+                        label: 'Due {0}'.trf([Fmt.money(card.balance)]),
+                        tone: GTone.danger,
+                        compact: true,
+                      )
+                    else
+                      GPill(
+                        label: 'Paid'.tr,
+                        tone: GTone.success,
+                        compact: true,
+                      ),
+                  ],
                 ],
-                Text(Fmt.money(card.total), style: AppType.money.c(p.ink)),
-                const SizedBox(height: 3),
-                if (card.balance > 0)
-                  GPill(
-                    label: 'Due {0}'.trf([Fmt.money(card.balance)]),
-                    tone: GTone.danger,
-                    compact: true,
-                  )
-                else
-                  GPill(label: 'Paid'.tr, tone: GTone.success, compact: true),
-              ],
+              ),
             ),
           ],
         ),

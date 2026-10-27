@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../config/app_config.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_tokens.dart';
-import '../theme/app_type.dart';
 
 /// Where the Balaji Automobiles artwork lives.
 ///
@@ -11,11 +9,10 @@ import '../theme/app_type.dart';
 /// the two apps are one product to the person holding the phone, so they wear
 /// the same mark cut from the same master.
 ///
-/// The mark — the gear with the B inside it — is shipped in two inks cut from
-/// one master, so they register pixel-for-pixel and the swap when the theme
-/// flips is invisible. [markLight] is the near-black cut for paper coloured
-/// surfaces; [markDark] is the amber cut for carbon ones. Nothing ever has to
-/// sit inside a white box to stay legible.
+/// The mark is the full Balaji Automobiles emblem — gear, car and wordmark in
+/// one piece — and is used exactly as supplied, never recoloured. It was drawn
+/// for a dark ground, so [markLight] and [markDark] are the same file; the two
+/// slots stay so a future cut per theme needs no code change.
 ///
 /// [badge] is the same mark pre-composited on its carbon tile, for the places
 /// that need one flat file — the store listings and generated PDFs.
@@ -30,7 +27,7 @@ class BrandArt {
   /// the handoff from the OS splash to the Flutter one is seamless.
   static const Color carbon = Color(0xFF101215);
 
-  /// The two inks the mark ships in, for chrome that has to match it.
+  /// The old mark's two inks, still the accent chrome is built around.
   static const Color amber = Color(0xFFFCBB01);
   static const Color ink = Color(0xFF171919);
 
@@ -69,66 +66,33 @@ class BrandMark extends StatelessWidget {
   }
 }
 
-/// The mark over the wordmark — what the splash and the sign-in sheet wear.
+/// The lockup the splash and the sign-in sheet wear.
 ///
-/// The artwork is square, so the old horizontal lockup's typography is set
-/// here rather than baked into the file: it stays sharp at any size and
-/// picks up the Devanagari fallback along with the rest of the app.
+/// The artwork carries the name itself, so this is the mark at the full
+/// [width] — no wordmark set in type underneath, which would say it twice.
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, required this.width, this.onDark});
 
-  /// The width of the whole lockup. The mark takes the middle of it, which
-  /// keeps the wordmark — the longer of the two — the thing that sets the
-  /// overall measure.
   final double width;
   final bool? onDark;
 
   @override
-  Widget build(BuildContext context) {
-    final p = context.c;
-    final dark = onDark ?? (p.brightness == Brightness.dark);
-    final foreground = dark ? p.onInverse : p.ink;
-
-    return SizedBox(
-      width: width,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          BrandMark(size: width * 0.52, onDark: dark),
-          SizedBox(height: width * 0.072),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              AppConfig.appName.toUpperCase(),
-              maxLines: 1,
-              style: AppType.h1
-                  .c(foreground)
-                  .copyWith(
-                    fontSize: width * 0.108,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: width * 0.0125,
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => BrandMark(size: width, onDark: onDark);
 }
 
 /// The mark on its own tile — for app bars, sheets and list rows.
 ///
-/// The tile follows the theme rather than always being carbon: on paper the
-/// mark is inked on a sunken well, on carbon it is amber on the plate. The
-/// artwork is laid in with [BoxFit.contain] and an inset, not cropped to
-/// fill: the whole mark is the point, and a cover fit ate its teeth.
+/// The tile is always the carbon plate, in either theme: the mark's white
+/// wordmark and car line vanish on a paper well. The artwork is laid in with
+/// [BoxFit.contain] and an inset, not cropped to fill: the whole mark is the
+/// point.
 class BrandBadge extends StatelessWidget {
   const BrandBadge({super.key, this.size = 44, this.onDark});
 
   final double size;
 
-  /// Forces the carbon cut for badges sitting on an inverse surface, and
-  /// adds a hairline rim so the tile still has an edge against it.
+  /// For badges sitting on an inverse surface: adds a hairline rim so the
+  /// tile still has an edge against it.
   final bool? onDark;
 
   @override
@@ -136,13 +100,12 @@ class BrandBadge extends StatelessWidget {
     final p = context.c;
     final inverse = onDark ?? false;
     final dark = inverse || p.isDark;
-    final tile = dark ? BrandArt.carbon : p.surfaceSunken;
 
     return Container(
       height: size,
       width: size,
       decoration: BoxDecoration(
-        color: tile,
+        color: BrandArt.carbon,
         borderRadius: R.all(size * 0.28),
         border: inverse
             ? Border.all(color: p.onInverse.withValues(alpha: 0.14), width: 1)
@@ -160,7 +123,7 @@ class BrandBadge extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: EdgeInsets.all(size * 0.15),
-        child: BrandMark(size: size * 0.70, onDark: dark),
+        child: BrandMark(size: size * 0.70, onDark: true),
       ),
     );
   }

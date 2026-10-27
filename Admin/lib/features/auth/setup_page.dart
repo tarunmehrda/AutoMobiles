@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/anim/entrance.dart';
+import '../../core/config/app_config.dart';
 import '../../core/i18n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
@@ -22,6 +23,9 @@ import '../../data/models/enums.dart';
 import '../../data/seed/vehicle_media.dart';
 import '../../data/seed/seed.dart';
 import '../../state/admin_state.dart';
+import '../../state/auth_state.dart';
+import '../shared/sign_out.dart';
+import 'role_choice.dart';
 import 'widgets/terms_sheet.dart';
 
 /// Registration, in the three steps the counter expects:
@@ -48,6 +52,17 @@ class SetupPage extends ConsumerStatefulWidget {
 
 class _SetupPageState extends ConsumerState<SetupPage> {
   int _step = 0;
+
+  /// What they said they are, on the first screen. Null until they pick.
+  /// Only an owner goes on to the form; a manager or staff member waits to
+  /// be let into the workshop that invited them.
+  JoinAs? _as;
+
+  /// The choice only means something with a server to join through. With
+  /// none, or no email to be invited by, this is simply registration.
+  bool get _asks =>
+      AppConfig.hasSupabase &&
+      (ref.read(authUserProvider)?.email ?? '').isNotEmpty;
 
   // --- step 1 ------------------------------------------------------------
   final _shop = TextEditingController();
@@ -279,54 +294,117 @@ class _SetupPageState extends ConsumerState<SetupPage> {
     context.go('/home');
   }
 
+  /// The owner gave this email access: a full restore claims it and the
+  /// gate takes them into the workshop instead of this screen.
+  Future<void> _checkInvite() async {
+    await attemptRestore(
+      ref.read(adminProvider.notifier),
+      setRestoring: (v) => ref.read(restoringProvider.notifier).state = v,
+      setFailed: (v) => ref.read(restoreFailedProvider.notifier).state = v,
+    );
+  }
+
+  /// Back from wherever they are: a form step, then the choice.
+  void _back() {
+    if (_as != JoinAs.owner || _step == 0) {
+      setState(() => _as = null);
+    } else {
+      _go(_step - 1);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.c;
+    final email = ref.watch(authUserProvider)?.email ?? '';
+    final as = _asks ? _as : JoinAs.owner;
+    final canBack = _asks ? as != null : _step > 0;
+
     return PopScope(
-      canPop: _step == 0,
+      canPop: !canBack,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _go(_step - 1);
+        if (didPop) return;
+        _asks ? _back() : _go(_step - 1);
       },
       child: Scaffold(
         backgroundColor: p.canvas,
         appBar: GHeader(
-          title: 'Registration'.tr,
-          showBack: _step > 0,
-          onBack: () => _go(_step - 1),
+          title: switch (as) {
+            null => 'Welcome'.tr,
+            JoinAs.owner => 'Registration'.tr,
+            _ => 'Join a workshop'.tr,
+          },
+          showBack: canBack,
+          onBack: _asks ? _back : () => _go(_step - 1),
         ),
         body: SafeArea(
           bottom: false,
-          child: Column(
-            children: [
-              _Stepper(step: _step),
-              const SizedBox(height: Gap.h1),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: Motion.base,
-                  switchInCurve: Motion.emphasized,
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.06, 0),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
-                    ),
-                  ),
-                  child: switch (_step) {
-                    0 => _shopStep(),
-                    1 => _ownerStep(),
-                    _ => _addressStep(),
-                  },
-                ),
+          child: AnimatedSwitcher(
+            duration: Motion.slow,
+            switchInCurve: Motion.emphasized,
+            switchOutCurve: Motion.exit,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.96, end: 1).animate(anim),
+                child: child,
               ),
-            ],
+            ),
+            child: switch (as) {
+              null => RoleChoiceView(
+                key: const ValueKey('choose'),
+                email: email,
+                onPick: (r) => setState(() {
+                  _as = r;
+                  _step = 0;
+                }),
+              ),
+              JoinAs.owner => KeyedSubtree(
+                key: const ValueKey('form'),
+                child: _form(),
+              ),
+              _ => JoinWorkshopView(
+                key: ValueKey('join-${as.name}'),
+                role: as,
+                email: email,
+                onJoined: _checkInvite,
+                onSignOut: () => confirmSignOut(context, ref),
+              ),
+            },
           ),
         ),
       ),
     );
   }
+
+  /// The three-step registration, for an owner.
+  Widget _form() => Column(
+    children: [
+      _Stepper(step: _step),
+      const SizedBox(height: Gap.h1),
+      Expanded(
+        child: AnimatedSwitcher(
+          duration: Motion.base,
+          switchInCurve: Motion.emphasized,
+          transitionBuilder: (child, anim) => FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.06, 0),
+                end: Offset.zero,
+              ).animate(anim),
+              child: child,
+            ),
+          ),
+          child: switch (_step) {
+            0 => _shopStep(),
+            1 => _ownerStep(),
+            _ => _addressStep(),
+          },
+        ),
+      ),
+    ],
+  );
 
   // --- step 1 ------------------------------------------------------------
 

@@ -76,7 +76,7 @@ class _SupportBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.c;
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
       child: Column(
         mainAxisSize: MainAxisSize.min,

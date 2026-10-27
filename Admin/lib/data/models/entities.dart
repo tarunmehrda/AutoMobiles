@@ -47,6 +47,7 @@ class Garage {
     this.logoPath,
     this.planExpiry,
     this.attendanceSite,
+    this.blocked = false,
   });
 
   final String id;
@@ -71,6 +72,11 @@ class Garage {
   /// because a location each phone could set for itself would not be a
   /// control at all.
   final AttendanceSite? attendanceSite;
+
+  /// Blocked by the platform (29_block_and_district.sql). The console shows
+  /// nothing but the way to support until a partner head unblocks it. Only
+  /// the server sets it; the garage update strips it before sending.
+  final bool blocked;
 
   String get postal => [
     addressLine,
@@ -102,6 +108,7 @@ class Garage {
     String? logoPath,
     DateTime? planExpiry,
     AttendanceSite? attendanceSite,
+    bool? blocked,
     // `??` cannot express "set this back to nothing", and un-pinning the
     // attendance location is exactly that.
     bool clearAttendanceSite = false,
@@ -123,6 +130,7 @@ class Garage {
     attendanceSite: clearAttendanceSite
         ? null
         : (attendanceSite ?? this.attendanceSite),
+    blocked: blocked ?? this.blocked,
   );
 
   Map<String, dynamic> toJson() => {
@@ -141,6 +149,7 @@ class Garage {
     'logo_path': logoPath,
     'plan_expiry': _iso(planExpiry),
     ...siteToJson(attendanceSite),
+    'blocked': blocked,
   };
 
   factory Garage.fromJson(Map<String, dynamic> j) => Garage(
@@ -159,6 +168,7 @@ class Garage {
     logoPath: j['logo_path'] as String?,
     planExpiry: _date(j['plan_expiry']),
     attendanceSite: siteFromJson(j),
+    blocked: (j['blocked'] ?? false) as bool,
   );
 }
 
@@ -170,22 +180,39 @@ class Staff {
     this.phone = '',
     this.skill = '',
     this.active = true,
+    this.designation = '',
+    this.remarks = '',
   });
 
   final String id;
   final String name;
   final String phone;
+
+  /// Speciality — "AC", "Denting", "Electrical".
   final String skill;
   final bool active;
 
-  Staff copyWith({String? name, String? phone, String? skill, bool? active}) =>
-      Staff(
-        id: id,
-        name: name ?? this.name,
-        phone: phone ?? this.phone,
-        skill: skill ?? this.skill,
-        active: active ?? this.active,
-      );
+  /// What they are employed as — Mechanic, Helper, Electrician… Separate
+  /// from the app-login role in [StaffRole], which only some staff have.
+  final String designation;
+  final String remarks;
+
+  Staff copyWith({
+    String? name,
+    String? phone,
+    String? skill,
+    bool? active,
+    String? designation,
+    String? remarks,
+  }) => Staff(
+    id: id,
+    name: name ?? this.name,
+    phone: phone ?? this.phone,
+    skill: skill ?? this.skill,
+    active: active ?? this.active,
+    designation: designation ?? this.designation,
+    remarks: remarks ?? this.remarks,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -193,6 +220,9 @@ class Staff {
     'phone': phone,
     'skill': skill,
     'active': active,
+    // 35_jobcard_intake.sql. Shed by the sync until it has been run.
+    'designation': designation,
+    'remarks': remarks,
   };
 
   factory Staff.fromJson(Map<String, dynamic> j) => Staff(
@@ -201,6 +231,8 @@ class Staff {
     phone: (j['phone'] ?? '') as String,
     skill: (j['skill'] ?? '') as String,
     active: (j['active'] ?? true) as bool,
+    designation: (j['designation'] ?? '') as String,
+    remarks: (j['remarks'] ?? '') as String,
   );
 }
 
@@ -293,6 +325,9 @@ class Vehicle {
     this.insurer = '',
     this.policyNo = '',
     this.insuranceExpiry,
+    this.insuranceFrom,
+    this.insurerAddress = '',
+    this.insurerGstin = '',
   });
 
   final String id;
@@ -325,6 +360,16 @@ class Vehicle {
   final String policyNo;
   final DateTime? insuranceExpiry;
 
+  /// When the policy started, and the insurer's own address and GSTIN —
+  /// what a claim invoice is billed to.
+  final DateTime? insuranceFrom;
+  final String insurerAddress;
+  final String insurerGstin;
+
+  /// Whether any insurance was taken down at all.
+  bool get insured =>
+      insurer.trim().isNotEmpty || policyNo.trim().isNotEmpty;
+
   /// `Maruti Suzuki 800 Old` — how the vehicle reads on every document.
   String get title =>
       [brand, model, variant].where((e) => e.trim().isNotEmpty).join(' ');
@@ -344,6 +389,9 @@ class Vehicle {
     String? insurer,
     String? policyNo,
     DateTime? insuranceExpiry,
+    DateTime? insuranceFrom,
+    String? insurerAddress,
+    String? insurerGstin,
   }) => Vehicle(
     id: id,
     customerId: customerId,
@@ -361,6 +409,9 @@ class Vehicle {
     insurer: insurer ?? this.insurer,
     policyNo: policyNo ?? this.policyNo,
     insuranceExpiry: insuranceExpiry ?? this.insuranceExpiry,
+    insuranceFrom: insuranceFrom ?? this.insuranceFrom,
+    insurerAddress: insurerAddress ?? this.insurerAddress,
+    insurerGstin: insurerGstin ?? this.insurerGstin,
   );
 
   Map<String, dynamic> toJson() => {
@@ -381,6 +432,10 @@ class Vehicle {
     'insurer': insurer,
     'policy_no': policyNo,
     'insurance_expiry': _iso(insuranceExpiry),
+    // 35_jobcard_intake.sql. Shed by the sync until it has been run.
+    'insurance_from': _iso(insuranceFrom),
+    'insurer_address': insurerAddress,
+    'insurer_gstin': insurerGstin,
   };
 
   factory Vehicle.fromJson(Map<String, dynamic> j) => Vehicle(
@@ -404,6 +459,9 @@ class Vehicle {
     insurer: (j['insurer'] ?? '') as String,
     policyNo: (j['policy_no'] ?? '') as String,
     insuranceExpiry: _date(j['insurance_expiry']),
+    insuranceFrom: _date(j['insurance_from']),
+    insurerAddress: (j['insurer_address'] ?? '') as String,
+    insurerGstin: (j['insurer_gstin'] ?? '') as String,
   );
 }
 
@@ -426,6 +484,8 @@ class LineItem {
     this.state = WorkState.pending,
     this.remark = '',
     this.masterId,
+    this.gstRate,
+    this.unit = '',
   });
 
   final String id;
@@ -441,6 +501,16 @@ class LineItem {
   /// Set when the row came from the master list, so issuing and returning the
   /// part moves the right stock row. Free-typed rows leave it null.
   final String? masterId;
+
+  /// This line's own GST, as a fraction (0.18). Null bills it at the card's
+  /// rate, which is how every line was billed before lines carried one.
+  final double? gstRate;
+
+  /// `ltr`, `kg`, `nos` — printed after the quantity. Empty prints nothing.
+  final String unit;
+
+  /// The GST this line is billed at, given the card's own rate.
+  double gstOn(double cardRate) => gstRate ?? cardRate;
 
   double get amount => money(qty * rate);
 
@@ -462,6 +532,9 @@ class LineItem {
     WorkState? state,
     String? remark,
     bool clearMechanic = false,
+    double? gstRate,
+    bool clearGst = false,
+    String? unit,
   }) => LineItem(
     id: id,
     kind: kind ?? this.kind,
@@ -473,11 +546,16 @@ class LineItem {
     state: state ?? this.state,
     remark: remark ?? this.remark,
     masterId: masterId,
+    gstRate: clearGst ? null : (gstRate ?? this.gstRate),
+    unit: unit ?? this.unit,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'kind': kind.name,
+    // 35_jobcard_intake.sql; save_job_card() ignores both until then.
+    'gst_rate': gstRate,
+    'unit': unit,
     'name': name,
     'part_no': partNo,
     'qty': qty,
@@ -499,6 +577,8 @@ class LineItem {
     state: WorkStateX.parse(j['state'] as String?),
     remark: (j['remark'] ?? '') as String,
     masterId: j['master_id'] as String?,
+    gstRate: (j['gst_rate'] as num?)?.toDouble(),
+    unit: (j['unit'] ?? '') as String,
   );
 }
 
@@ -663,6 +743,11 @@ class Payment {
   final DateTime at;
   final String note;
 
+  /// Taken at the counter when the card was opened. Minted with an `adv-`
+  /// id (see `addPayment`); older advances are known by their note.
+  bool get isAdvance =>
+      id.startsWith('adv-') || note.toLowerCase().contains('advance');
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'amount': amount,
@@ -805,7 +890,26 @@ class JobCard {
 
   double get taxable => money((subTotal - discount).clamp(0, double.infinity));
 
-  double get taxAmount => money(taxable * taxRate);
+  /// Lines may carry their own GST (28% on a battery, 18% on labour); one
+  /// without bills at [taxRate]. A discount comes off every line in
+  /// proportion, so the tax falls with it.
+  double get taxAmount {
+    final sub = subTotal;
+    if (sub <= 0) return 0;
+    final share = taxable / sub;
+    return money(
+      items.fold<double>(0, (t, e) => t + e.amount * share * e.gstOn(taxRate)),
+    );
+  }
+
+  /// Whether any line is billed at a rate other than the card's.
+  bool get mixedGst => items.any((e) => e.gstRate != null && e.gstRate != taxRate);
+
+  /// Money taken before the work was done — the advance, as the invoice
+  /// prints it apart from what was paid at delivery.
+  double get advancePaid => money(
+    payments.where((p) => p.isAdvance).fold<double>(0, (s, e) => s + e.amount),
+  );
 
   double get total => money(taxable + taxAmount);
 
@@ -1314,6 +1418,7 @@ class Expense {
     this.supplier = '',
     this.paid = 0,
     this.note = '',
+    this.mode = PayMode.cash,
   });
 
   final String id;
@@ -1324,6 +1429,10 @@ class Expense {
   final String supplier;
   final double paid;
   final String note;
+
+  /// How the paid part went out — cash from the drawer, or online (UPI,
+  /// bank transfer) from the bank account.
+  final PayMode mode;
 
   double get pending => money((amount - paid).clamp(0, double.infinity));
   bool get settled => pending <= 0.009;
@@ -1336,6 +1445,7 @@ class Expense {
     String? supplier,
     double? paid,
     String? note,
+    PayMode? mode,
   }) => Expense(
     id: id,
     title: title ?? this.title,
@@ -1345,11 +1455,13 @@ class Expense {
     supplier: supplier ?? this.supplier,
     paid: paid ?? this.paid,
     note: note ?? this.note,
+    mode: mode ?? this.mode,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
+    'mode': mode.name,
     'amount': amount,
     'at': _iso(at)!,
     'category': category,
@@ -1367,6 +1479,7 @@ class Expense {
     supplier: (j['supplier'] ?? '') as String,
     paid: _num(j['paid']),
     note: (j['note'] ?? '') as String,
+    mode: PayModeX.parse(j['mode'] as String?),
   );
 }
 
@@ -1383,6 +1496,7 @@ class CashEntry {
     this.reason = '',
     this.mode = PayMode.cash,
     this.jobCardId,
+    this.accountId,
   });
 
   final String id;
@@ -1396,6 +1510,13 @@ class CashEntry {
   final PayMode mode;
   final String? jobCardId;
 
+  /// The bank account this went through, when it was named. Null means
+  /// "by the mode": cash is the drawer, anything else the primary bank.
+  final String? accountId;
+
+  /// Whether the money moved through the drawer rather than a bank.
+  bool get isCash => mode == PayMode.cash && accountId == null;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'party': party,
@@ -1405,6 +1526,8 @@ class CashEntry {
     'reason': reason,
     'mode': mode.name,
     'job_card_id': jobCardId,
+    // 35_jobcard_intake.sql. Shed by the sync until it has been run.
+    'account_id': accountId,
   };
 
   factory CashEntry.fromJson(Map<String, dynamic> j) => CashEntry(
@@ -1416,6 +1539,7 @@ class CashEntry {
     reason: (j['reason'] ?? '') as String,
     mode: PayModeX.parse(j['mode'] as String?),
     jobCardId: j['job_card_id'] as String?,
+    accountId: j['account_id'] as String?,
   );
 }
 

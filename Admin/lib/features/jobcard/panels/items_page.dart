@@ -22,6 +22,7 @@ import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import '../../../state/admin_state.dart';
 import '../../../state/providers.dart';
+import '../documents/doc_text.dart';
 import '../widgets/ledger_tabs.dart';
 
 /// The bill, built one line at a time. Three tabs because a workshop thinks
@@ -102,21 +103,20 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
             ),
             child: Row(
               children: [
-                for (var i = 0; i < LineKind.values.length; i++) ...[
+                for (final (i, k) in _tabs(card).indexed) ...[
+                  if (i > 0) const SizedBox(width: Gap.sm),
                   Expanded(
                     child: _KindTab(
-                      kind: LineKind.values[i],
-                      total: card.totalOf(LineKind.values[i]),
-                      count: card.itemsOf(LineKind.values[i]).length,
-                      selected: _kind == LineKind.values[i],
+                      kind: k,
+                      total: card.totalOf(k),
+                      count: card.itemsOf(k).length,
+                      selected: _kind == k,
                       onTap: () {
-                        setState(() => _kind = LineKind.values[i]);
+                        setState(() => _kind = k);
                         _clearSearch();
                       },
                     ),
                   ),
-                  if (i != LineKind.values.length - 1)
-                    const SizedBox(width: Gap.sm),
                 ],
               ],
             ),
@@ -203,6 +203,7 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
                       child: _LineRow(
                         line: rows[i],
                         index: i + 1,
+                        cardRate: card.taxRate,
                         locked: locked,
                         onEdit: () => _openEditor(card, rows[i]),
                         onRemove: () => ref
@@ -221,18 +222,26 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
       bottomNavigationBar: GBottomBar(
         child: Row(
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('TOTAL', style: AppType.over.s(9.5).c(p.inkFaint)),
-                Text(
-                  Fmt.money2(card.total),
-                  style: AppType.moneyL.s(22).c(p.ink),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('TOTAL', style: AppType.over.s(9.5).c(p.inkFaint)),
+                  // A big bill shrinks to fit beside the button rather than
+                  // running under it.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      Fmt.money2(card.total),
+                      style: AppType.moneyL.s(22).c(p.ink),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const Spacer(),
+            const SizedBox(width: Gap.md),
             GButton.accent(
               label: 'Done'.tr,
               expand: false,
@@ -277,6 +286,7 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
           .toList(),
       existing: existing,
       prefillName: prefillName,
+      cardRate: card.taxRate,
     );
     if (result == null) return;
     final ctrl = ref.read(adminProvider.notifier);
@@ -289,6 +299,8 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
         qty: result.qty,
         rate: result.rate,
         mechanicId: result.mechanicId,
+        gstRate: result.gstRate,
+        unit: result.unit,
       );
     } else {
       ctrl.updateItem(
@@ -302,6 +314,9 @@ class _ItemsPageState extends ConsumerState<ItemsPage> {
           clearMechanic: result.mechanicId == null,
           remark: result.remark,
           state: result.state,
+          gstRate: result.gstRate,
+          clearGst: result.gstRate == null,
+          unit: result.unit,
         ),
       );
     }
@@ -355,10 +370,16 @@ class _KindTab extends StatelessWidget {
                       : p.inkMuted,
                 ),
                 const SizedBox(width: 5),
-                Text(
-                  kind.label,
-                  style: AppType.labelM.c(
-                    selected ? (p.isDark ? p.canvas : Colors.white) : p.inkSoft,
+                Flexible(
+                  child: Text(
+                    kind.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.labelM.c(
+                      selected
+                          ? (p.isDark ? p.canvas : Colors.white)
+                          : p.inkSoft,
+                    ),
                   ),
                 ),
                 if (count > 0) ...[
@@ -396,6 +417,7 @@ class _LineRow extends ConsumerWidget {
   const _LineRow({
     required this.line,
     required this.index,
+    required this.cardRate,
     required this.locked,
     required this.onEdit,
     required this.onRemove,
@@ -403,6 +425,9 @@ class _LineRow extends ConsumerWidget {
 
   final LineItem line;
   final int index;
+
+  /// The card's own GST, which a line without one of its own is billed at.
+  final double cardRate;
   final bool locked;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
@@ -452,11 +477,28 @@ class _LineRow extends ConsumerWidget {
                       children: [
                         Flexible(
                           child: Text(
-                            'Qty × rate: {0}'.trf([line.breakdown]),
+                            line.unit.trim().isEmpty
+                                ? 'Qty × rate: {0}'.trf([line.breakdown])
+                                : 'Qty × rate: {0} {1}'.trf([
+                                    line.breakdown,
+                                    line.unit.trim(),
+                                  ]),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppType.bodyS.s(11.5).c(p.inkMuted),
                           ),
+                        ),
+                        // The line's own GST, so a 28% battery on an 18%
+                        // card is visible before it is on the invoice.
+                        const SizedBox(width: Gap.sm),
+                        Text(
+                          'GST {0}'.trf([gstPct(line.gstOn(cardRate))]),
+                          maxLines: 1,
+                          style: AppType.labelS
+                              .s(10)
+                              .c(
+                                line.gstRate == null ? p.inkFaint : p.accentInk,
+                              ),
                         ),
                         if (line.partNo.isNotEmpty) ...[
                           const SizedBox(width: Gap.sm),
@@ -490,15 +532,17 @@ class _LineRow extends ConsumerWidget {
               Expanded(
                 child: Row(
                   children: [
-                    GPill(
-                      label: line.state.label,
-                      compact: true,
-                      tone: switch (line.state) {
-                        WorkState.done => GTone.success,
-                        WorkState.running => GTone.info,
-                        WorkState.skipped => GTone.neutral,
-                        WorkState.pending => GTone.warning,
-                      },
+                    Flexible(
+                      child: GPill(
+                        label: line.state.label,
+                        compact: true,
+                        tone: switch (line.state) {
+                          WorkState.done => GTone.success,
+                          WorkState.running => GTone.info,
+                          WorkState.skipped => GTone.neutral,
+                          WorkState.pending => GTone.warning,
+                        },
+                      ),
                     ),
                     if (mechanic != null) ...[
                       const SizedBox(width: Gap.sm),
@@ -615,7 +659,8 @@ class _BillSummary extends ConsumerWidget {
       child: Column(
         children: [
           for (final k in LineKind.values)
-            GKeyValue(label: k.label, value: Fmt.money2(card.totalOf(k))),
+            if (kBillKinds.contains(k) || card.itemsOf(k).isNotEmpty)
+              GKeyValue(label: k.label, value: Fmt.money2(card.totalOf(k))),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.sm),
             child: GDashedLine(color: p.line),
@@ -627,11 +672,9 @@ class _BillSummary extends ConsumerWidget {
               value: '- ${Fmt.money2(card.discount)}',
               valueColor: p.success,
             ),
-          if (card.taxRate > 0)
-            GKeyValue(
-              label: 'GST {0}%'.trf([(card.taxRate * 100).toStringAsFixed(0)]),
-              value: Fmt.money2(card.taxAmount),
-            ),
+          // Each line at its own rate; see `JobCard.taxAmount`.
+          if (card.taxAmount > 0)
+            GKeyValue(label: taxLabel(card), value: Fmt.money2(card.taxAmount)),
           GKeyValue(
             label: 'Payable'.tr,
             value: Fmt.money2(card.total),
@@ -695,7 +738,7 @@ class _BillSummary extends ConsumerWidget {
       subtitle: 'Comes off before GST. Max {0}.'.trf([
         Fmt.money2(card.subTotal),
       ]),
-      child: Padding(
+      child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(
           Gap.page,
           Gap.lg,
@@ -739,7 +782,7 @@ class _BillSummary extends ConsumerWidget {
       context,
       title: 'GST',
       subtitle: 'Applied to the amount after discount.'.tr,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -807,6 +850,8 @@ class LineDraft {
     required this.mechanicId,
     required this.state,
     required this.remark,
+    this.gstRate,
+    this.unit = '',
   });
 
   final LineKind kind;
@@ -817,6 +862,12 @@ class LineDraft {
   final String? mechanicId;
   final WorkState state;
   final String remark;
+
+  /// The line's own GST as a fraction, or null to bill it at the card's.
+  final double? gstRate;
+
+  /// `ltr`, `nos` — printed after the quantity. Empty prints nothing.
+  final String unit;
 }
 
 /// Add or edit one line. Also where the mechanic and the floor remark get
@@ -827,6 +878,7 @@ Future<LineDraft?> showLineEditor(
   required List<Staff> staff,
   LineItem? existing,
   String prefillName = '',
+  double cardRate = 0,
 }) async {
   final name = TextEditingController(text: existing?.name ?? prefillName);
   final partNo = TextEditingController(text: existing?.partNo ?? '');
@@ -839,6 +891,8 @@ Future<LineDraft?> showLineEditor(
   final remark = TextEditingController(text: existing?.remark ?? '');
   var mechanicId = existing?.mechanicId;
   var work = existing?.state ?? WorkState.pending;
+  double? gst = existing?.gstRate;
+  var unit = existing?.unit ?? '';
   LineDraft? out;
 
   await GFeedback.sheet<void>(
@@ -928,10 +982,61 @@ Future<LineDraft?> showLineEditor(
                 child: Row(
                   children: [
                     Text('Line amount'.tr, style: AppType.labelM.c(p.inkMuted)),
-                    const Spacer(),
-                    Text(Fmt.money2(q * r), style: AppType.money.c(p.ink)),
+                    const SizedBox(width: Gap.md),
+                    Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          Fmt.money2(q * r),
+                          style: AppType.money.c(p.ink),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
+              ),
+              // A part counted out in litres prints as "2 ltr"; a line
+              // picked from the master list already carries the master's.
+              if (kind.isStocked) ...[
+                const SizedBox(height: Gap.lg),
+                Text('UNIT'.tr, style: AppType.over.c(p.inkFaint)),
+                const SizedBox(height: Gap.sm),
+                Wrap(
+                  spacing: Gap.sm,
+                  runSpacing: Gap.sm,
+                  children: [
+                    for (final u in kStockUnits)
+                      _Chip(
+                        label: u,
+                        selected: unit == u,
+                        onTap: () => setSheet(() => unit = unit == u ? '' : u),
+                      ),
+                  ],
+                ),
+              ],
+              // GST per line: a battery at 28% and the labour at 18% on one
+              // card. "Card rate" leaves the line on whatever the card is
+              // billed at, which is what every line did before.
+              const SizedBox(height: Gap.lg),
+              Text('GST'.tr, style: AppType.over.c(p.inkFaint)),
+              const SizedBox(height: Gap.sm),
+              Wrap(
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
+                children: [
+                  _Chip(
+                    label: 'Card rate ({0})'.trf([gstPct(cardRate)]),
+                    selected: gst == null,
+                    onTap: () => setSheet(() => gst = null),
+                  ),
+                  for (final slab in kGstSlabs)
+                    _Chip(
+                      label: gstPct(slab),
+                      selected: gst != null && (gst! - slab).abs() < 0.0001,
+                      onTap: () => setSheet(() => gst = slab),
+                    ),
+                ],
               ),
               if (staff.isNotEmpty) ...[
                 const SizedBox(height: Gap.lg),
@@ -1007,6 +1112,8 @@ Future<LineDraft?> showLineEditor(
                           mechanicId: mechanicId,
                           state: work,
                           remark: remark.text.trim(),
+                          gstRate: gst,
+                          unit: unit,
                         );
                         Navigator.of(context).pop();
                       },
@@ -1020,3 +1127,50 @@ Future<LineDraft?> showLineEditor(
 
   return out;
 }
+
+/// A pill that is on or off — the unit and GST pickers in the line editor.
+class _Chip extends StatelessWidget {
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Pressable(
+      onTap: onTap,
+      scale: 0.95,
+      child: AnimatedContainer(
+        duration: Motion.fast,
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.md,
+          vertical: Gap.sm,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? p.ink : p.surface,
+          borderRadius: R.all(R.pill),
+          border: Border.all(color: selected ? p.ink : p.line),
+        ),
+        child: Text(
+          label,
+          style: AppType.labelM.c(
+            selected ? (p.isDark ? p.canvas : Colors.white) : p.inkSoft,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The buckets shown on a card: Jobs and Spares, and Lube only where an older
+/// card already carries lube lines that still need editing.
+List<LineKind> _tabs(JobCard card) => [
+  ...kBillKinds,
+  if (card.itemsOf(LineKind.lube).isNotEmpty) LineKind.lube,
+];

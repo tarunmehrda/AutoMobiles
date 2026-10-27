@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:garagepro_admin/core/theme/app_theme.dart';
+import 'package:garagepro_admin/data/models/books.dart';
 import 'package:garagepro_admin/data/models/entities.dart';
 import 'package:garagepro_admin/data/models/enums.dart';
 import 'package:garagepro_admin/features/jobcard/documents/doc_sections.dart';
@@ -39,6 +40,9 @@ void main() {
     required InvoiceFormat format,
     required Set<DocSection> sections,
     DocKind kind = DocKind.invoice,
+    bool jobCardCopy = false,
+    List<BankAccount> banks = const [],
+    Vehicle? vehicle,
   }) async {
     tester.view.physicalSize = const Size(1170, 4000);
     tester.view.devicePixelRatio = 3.0;
@@ -55,10 +59,12 @@ void main() {
               card: f.card,
               garage: f.garage,
               customer: f.customer,
-              vehicle: f.vehicle,
+              vehicle: vehicle ?? f.vehicle,
               staff: f.staff,
               format: format,
               sections: sections,
+              jobCardCopy: jobCardCopy,
+              banks: banks,
             ),
           ),
         ),
@@ -214,6 +220,109 @@ void main() {
       expect(find.text('No pricing on this copy'), findsOneWidget);
       // What it does carry is the work.
       expect(find.text('Engine Noise'), findsOneWidget);
+    });
+  });
+
+  group('the invoice the client asked for', () {
+    testWidgets('the table carries a GST column with each line rate', (
+      tester,
+    ) async {
+      await pump(tester, format: InvoiceFormat.simpleA4, sections: const {});
+      expect(find.text('GST'), findsOneWidget);
+      expect(find.text('18%'), findsOneWidget);
+    });
+
+    testWidgets('the advance is shown apart from what was paid after', (
+      tester,
+    ) async {
+      await pump(tester, format: InvoiceFormat.simpleA4, sections: const {});
+      for (final label in ['Total', 'Advance', 'Payable', 'Paid', 'Balance']) {
+        expect(find.text(label), findsOneWidget, reason: '$label missing');
+      }
+    });
+
+    testWidgets('the vehicle reads year first', (tester) async {
+      await pump(tester, format: InvoiceFormat.simpleA4, sections: const {});
+      expect(find.text('2004 Maruti Suzuki 800'), findsOneWidget);
+    });
+
+    testWidgets('an insured vehicle gets its own insurance block', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        format: InvoiceFormat.simpleA4,
+        sections: const {},
+        vehicle: f.vehicle.copyWith(
+          insurer: 'ICICI Lombard',
+          policyNo: 'P-77',
+          insurerGstin: '08AAACI1234C1ZB',
+        ),
+      );
+      expect(find.text('INSURANCE'), findsOneWidget);
+      expect(find.text('ICICI Lombard'), findsOneWidget);
+      expect(find.text('08AAACI1234C1ZB'), findsOneWidget);
+    });
+
+    testWidgets('bank accounts marked to print go at the foot', (
+      tester,
+    ) async {
+      const bank = BankAccount(
+        id: 'b1',
+        name: 'HDFC Bank',
+        accountNo: '50100',
+        ifsc: 'HDFC0001',
+        printOnInvoice: true,
+      );
+      await pump(
+        tester,
+        format: InvoiceFormat.simpleA4,
+        sections: const {},
+        banks: const [bank, BankAccount(id: 'b2', name: 'Not printed')],
+      );
+      expect(find.textContaining('HDFC Bank'), findsOneWidget);
+      expect(find.textContaining('Not printed'), findsNothing);
+    });
+  });
+
+  group('the floor copies', () {
+    testWidgets('the mechanic copy lists the work beside the voice', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        kind: DocKind.mechanicCopy,
+        format: InvoiceFormat.simpleA4,
+        sections: DocSectionX.defaultsFor(
+          InvoiceFormat.simpleA4,
+          DocKind.mechanicCopy,
+        ),
+      );
+      expect(find.text('Mechanic Copy'), findsWidgets);
+      expect(find.text('SPARE PARTS / JOBS'), findsOneWidget);
+      expect(find.text('General Service Labour  × 1'), findsOneWidget);
+      expect(find.text('RATE'), findsNothing);
+      expect(find.text('Mechanic signature'), findsOneWidget);
+    });
+
+    testWidgets('the job card copy is the customer copy, with the intake', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        kind: DocKind.mechanicCopy,
+        jobCardCopy: true,
+        format: InvoiceFormat.simpleA4,
+        sections: DocSectionX.defaultsFor(
+          InvoiceFormat.simpleA4,
+          DocKind.mechanicCopy,
+          jobCardCopy: true,
+        ),
+      );
+      expect(find.text('Job Card Copy'), findsOneWidget);
+      expect(find.text('Tool Kit'), findsOneWidget);
+      expect(find.text('Customer signature'), findsOneWidget);
+      expect(find.text('RATE'), findsNothing);
     });
   });
 }

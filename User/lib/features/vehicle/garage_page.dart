@@ -36,26 +36,37 @@ class GaragePage extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   Gap.page, Gap.md, Gap.page, Gap.lg),
-              child: Row(
+              // The line under the title runs the full width, not just
+              // the part left over beside the button: squeezed in there at a
+              // large font it broke "My Vehicles" onto two lines and the
+              // subtitle onto three.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('My Vehicles', style: AppType.d2.c(p.ink)),
-                        Text('Manage your vehicles and service schedules',
-                            style: AppType.bodyS.c(p.inkMuted)),
-                      ],
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text('My Vehicles',
+                              maxLines: 1, style: AppType.d2.c(p.ink)),
+                        ),
+                      ),
+                      const SizedBox(width: Gap.sm),
+                      GButton.accent(
+                        label: 'Add Vehicle',
+                        size: GButtonSize.sm,
+                        icon: Icons.add_rounded,
+                        expand: false,
+                        onPressed: () => context.push('/vehicle/add'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: Gap.sm),
-                  GButton.accent(
-                    label: 'Add Vehicle',
-                    size: GButtonSize.sm,
-                    icon: Icons.add_rounded,
-                    expand: false,
-                    onPressed: () => context.push('/vehicle/add'),
-                  ),
+                  // Clear of the button's raised edge, which draws below it.
+                  const SizedBox(height: Gap.md),
+                  Text('Manage your vehicles and service schedules',
+                      style: AppType.bodyS.c(p.inkMuted)),
                 ],
               ),
             ),

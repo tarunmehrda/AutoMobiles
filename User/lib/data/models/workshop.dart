@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../core/tax/gst.dart';
+import '../../core/utils/formatters.dart';
 
 /// A workshop's name with its PIN code: "Balaji-333503". Two shops called
 /// Balaji are common; two in the same PIN code are not. The name alone when
@@ -215,7 +216,87 @@ class WorkshopCard {
     this.garagePin = '',
     this.garageEmail = '',
     this.garageTerms = '',
+    this.payments = const [],
+    this.advance = 0,
+    this.vehicleYear,
+    this.insurer = '',
+    this.policyNo = '',
+    this.insuranceFrom,
+    this.insuranceExpiry,
+    this.insurerAddress = '',
+    this.insurerGstin = '',
+    this.billName = '',
+    this.billPhone = '',
+    this.billEmail = '',
+    this.billAddress = '',
+    this.billGstin = '',
+    this.bank,
   });
+
+  // Everything below arrived with 35_jobcard_intake.sql. Until a database
+  // has run it these keys are simply absent, so each one parses to empty or
+  // null and the screens leave out whatever is missing.
+
+  /// Every payment the counter recorded, oldest first.
+  final List<WorkshopPayment> payments;
+
+  /// The money taken when the card was opened. Part of [paid], never on top
+  /// of it.
+  final double advance;
+
+  final int? vehicleYear;
+
+  // The vehicle's insurance, as the counter copied it off the policy.
+  final String insurer;
+  final String policyNo;
+  final DateTime? insuranceFrom;
+  final DateTime? insuranceExpiry;
+  final String insurerAddress;
+  final String insurerGstin;
+
+  // Who the bill is made out to, from the workshop's customer record — which
+  // can be a company, not the person holding this phone.
+  final String billName;
+  final String billPhone;
+  final String billEmail;
+  final String billAddress;
+  final String billGstin;
+
+  /// The account the workshop prints on its invoices, if it chose one.
+  final WorkshopBank? bank;
+
+  bool get hasInsurance =>
+      insurer.trim().isNotEmpty || policyNo.trim().isNotEmpty;
+
+  /// "2015 Hyundai Santro", the year only when the counter knew it.
+  String get vehicleName => [
+        if (vehicleYear != null && vehicleYear! > 0) '$vehicleYear',
+        vehicleTitle.trim(),
+      ].where((s) => s.isNotEmpty).join(' ');
+
+  /// "2015 Hyundai Santro · KA01AB1234".
+  String get vehicleLine => [vehicleName, Fmt.plate(regNo.trim())]
+      .where((s) => s.isNotEmpty)
+      .join(' · ');
+
+  /// Paid since the card was opened — everything except the advance.
+  double get paidAfterAdvance {
+    final v = _round(paid - advance);
+    return v < 0 ? 0 : v;
+  }
+
+  /// What the bill leaves to pay once the advance is taken off.
+  double get payable {
+    final v = _round(total - advance);
+    return v < 0 ? 0 : v;
+  }
+
+  /// "UPI", "Cash and UPI" — how the advance came in, or empty when no
+  /// payment says.
+  String get advanceVia => {
+        for (final e in payments)
+          if (e.advance && e.modeLabel.isNotEmpty) e.modeLabel,
+      }.join(' and ');
 
   /// Damage the counter marked on the car when it came in, so the customer
   /// sees the same list they would argue about at handover.
@@ -315,10 +396,11 @@ class WorkshopCard {
 
   /// Whether the workshop charged tax on this card.
   bool get taxed =>
-      gstOverride ?? (taxRate > 0 || items.any((e) => e.gstRate > 0));
+      gstOverride ?? (taxRate > 0 || items.any((e) => (e.gstRate ?? 0) > 0));
 
-  double _rateOf(WorkshopLine e) =>
-      e.gstRate > 0 ? e.gstRate : _round(taxRate * 100);
+  /// This line's GST in percent: its own rate, or the card's when the
+  /// counter left the line at the default.
+  double gstPercentOf(WorkshopLine e) => e.gstRate ?? _round(taxRate * 100);
 
   /// The same engine the console bills with, so the customer's copy of the
   /// invoice agrees with the printed one to the rupee.
@@ -331,7 +413,7 @@ class WorkshopCard {
               qty: e.qty,
               rate: e.rate,
               discount: e.discount,
-              gstRate: _rateOf(e),
+              gstRate: gstPercentOf(e),
             ),
         ],
         place: PlaceOfSupply(fromState: homeState, toState: supplyState),
@@ -425,6 +507,29 @@ class WorkshopCard {
         garagePin: (j['garage_pin'] ?? '') as String,
         garageEmail: (j['garage_email'] ?? '') as String,
         garageTerms: (j['garage_terms'] ?? '') as String,
+        payments: _payments(j['payment_list']),
+        // The view sums the advance itself; a row with the list but not the
+        // column still has the flags to add up.
+        advance: j['advance'] != null
+            ? _num(j['advance'])
+            : _round(_payments(j['payment_list'])
+                .where((e) => e.advance)
+                .fold<double>(0, (s, e) => s + e.amount)),
+        vehicleYear: _int(j['vehicle_year']),
+        insurer: _str(j['insurer']),
+        policyNo: _str(j['policy_no']),
+        insuranceFrom: _date(j['insurance_from']),
+        insuranceExpiry: _date(j['insurance_expiry']),
+        insurerAddress: _str(j['insurer_address']),
+        insurerGstin: _str(j['insurer_gstin']),
+        billName: _str(j['bill_name']),
+        billPhone: _str(j['bill_phone']),
+        billEmail: _str(j['bill_email']),
+        billAddress: _str(j['bill_address']),
+        billGstin: _str(j['bill_gstin']),
+        bank: j['bank'] is Map
+            ? WorkshopBank.fromJson(Map<String, dynamic>.from(j['bank'] as Map))
+            : null,
       );
 
   Map<String, dynamic> toJson() => {
@@ -463,6 +568,117 @@ class WorkshopCard {
         'garage_pin': garagePin,
         'garage_email': garageEmail,
         'garage_terms': garageTerms,
+        'payment_list': payments.map((e) => e.toJson()).toList(),
+        'advance': advance,
+        'vehicle_year': vehicleYear,
+        'insurer': insurer,
+        'policy_no': policyNo,
+        'insurance_from': insuranceFrom?.toIso8601String(),
+        'insurance_expiry': insuranceExpiry?.toIso8601String(),
+        'insurer_address': insurerAddress,
+        'insurer_gstin': insurerGstin,
+        'bill_name': billName,
+        'bill_phone': billPhone,
+        'bill_email': billEmail,
+        'bill_address': billAddress,
+        'bill_gstin': billGstin,
+        'bank': bank?.toJson(),
+      };
+}
+
+/// One payment against a job card.
+@immutable
+class WorkshopPayment {
+  const WorkshopPayment({
+    this.id = '',
+    this.amount = 0,
+    this.mode = '',
+    this.at,
+    this.advance = false,
+  });
+
+  final String id;
+  final double amount;
+
+  /// `cash`, `upi`, `card`, `netbanking` or `cheque`.
+  final String mode;
+  final DateTime? at;
+
+  /// Taken when the card was opened, before any work.
+  final bool advance;
+
+  String get modeLabel => switch (mode.trim().toLowerCase()) {
+        'cash' => 'Cash',
+        'upi' => 'UPI',
+        'card' => 'Card',
+        'netbanking' => 'Net Banking',
+        'cheque' => 'Cheque',
+        '' => '',
+        final m => m[0].toUpperCase() + m.substring(1),
+      };
+
+  factory WorkshopPayment.fromJson(Map<String, dynamic> j) => WorkshopPayment(
+        id: _str(j['id']),
+        amount: _num(j['amount']),
+        mode: _str(j['mode']),
+        at: _date(j['at']),
+        advance: j['advance'] == true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'amount': amount,
+        'mode': mode,
+        'at': at?.toIso8601String(),
+        'advance': advance,
+      };
+}
+
+/// The bank account a workshop prints at the foot of its invoice.
+@immutable
+class WorkshopBank {
+  const WorkshopBank({
+    this.name = '',
+    this.holder = '',
+    this.accountNo = '',
+    this.ifsc = '',
+    this.branch = '',
+    this.upiId = '',
+  });
+
+  final String name;
+  final String holder;
+  final String accountNo;
+  final String ifsc;
+  final String branch;
+  final String upiId;
+
+  /// Label and value, only the ones the workshop filled in.
+  List<(String, String)> get rows => [
+        ('Bank', name),
+        ('A/c Holder', holder),
+        ('A/c No', accountNo),
+        ('IFSC', ifsc),
+        ('Branch', branch),
+        ('UPI ID', upiId),
+      ].where((r) => r.$2.trim().isNotEmpty).toList();
+
+  factory WorkshopBank.fromJson(Map<String, dynamic> j) => WorkshopBank(
+        name: _str(j['name']),
+        holder: _str(j['holder']),
+        accountNo: _str(j['account_no']),
+        ifsc: _str(j['ifsc']),
+        branch: _str(j['branch']),
+        upiId: _str(j['upi_id']),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'holder': holder,
+        'account_no': accountNo,
+        'ifsc': ifsc,
+        'branch': branch,
+        'upi_id': upiId,
       };
 }
 
@@ -478,7 +694,8 @@ class WorkshopLine {
     this.rate = 0,
     this.discount = 0,
     this.hsn = '',
-    this.gstRate = 0,
+    this.gstRate,
+    this.unit = '',
     this.state = 'pending',
     this.remark = '',
   });
@@ -499,8 +716,17 @@ class WorkshopLine {
   /// the normal case — the workshop may not charge GST at all.
   final String hsn;
 
-  /// Percent. Zero falls back to whatever the card is set to.
-  final double gstRate;
+  /// Percent. Null bills the line at whatever the card is set to. The
+  /// database stores a fraction (0.18); it becomes 18 on the way in.
+  final double? gstRate;
+
+  /// "pcs", "L" — blank when the counter did not say.
+  final String unit;
+
+  /// "2 L", or just "2".
+  String get qtyLabel => unit.trim().isEmpty
+      ? Fmt.number(qty)
+      : '${Fmt.number(qty)} ${unit.trim()}';
 
   /// `pending`, `running`, `done` or `skipped`.
   final String state;
@@ -525,7 +751,9 @@ class WorkshopLine {
         rate: _num(j['rate']),
         discount: _num(j['discount']),
         hsn: (j['hsn'] ?? '') as String,
-        gstRate: _num(j['gst_rate']),
+        gstRate:
+            j['gst_rate'] == null ? null : _round(_num(j['gst_rate']) * 100),
+        unit: _str(j['unit']),
         state: (j['state'] ?? 'pending') as String,
         remark: (j['remark'] ?? '') as String,
       );
@@ -538,7 +766,10 @@ class WorkshopLine {
         'qty': qty,
         'discount': discount,
         'hsn': hsn,
-        'gst_rate': gstRate,
+        // Back to the fraction the database sends, so the cache reads the
+        // same way the view does.
+        'gst_rate': gstRate == null ? null : gstRate! / 100,
+        'unit': unit,
         'rate': rate,
         'state': state,
         'remark': remark,
@@ -572,18 +803,22 @@ class WorkshopDent {
 
   String get severityLabel => switch (severity) {
         'dent' => 'Dent',
-        'crack' => 'Break',
+        'crack' => 'Broken',
         'rust' => 'Rust',
         _ => 'Scratch',
       };
 
   factory WorkshopDent.fromJson(Map<String, dynamic> j) => WorkshopDent(
-        id: (j['id'] ?? '') as String,
-        label: (j['label'] ?? j['part'] ?? '') as String,
-        severity: (j['severity'] ?? 'scratch') as String,
-        note: (j['note'] ?? '') as String,
-        dx: (j['dx'] as num?)?.toDouble() ?? 0.5,
-        dy: (j['dy'] as num?)?.toDouble() ?? 0.5,
+        id: _str(j['id']),
+        // Whatever the mark carries, "Underbody" included — then the part,
+        // then the view, when the counter left the label blank.
+        label: [j['label'], j['part'], j['view']]
+            .map(_str)
+            .firstWhere((s) => s.trim().isNotEmpty, orElse: () => ''),
+        severity: _str(j['severity']).isEmpty ? 'scratch' : _str(j['severity']),
+        note: _str(j['note']),
+        dx: j['dx'] == null ? 0.5 : _num(j['dx']),
+        dy: j['dy'] == null ? 0.5 : _num(j['dy']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -609,6 +844,22 @@ DateTime? _date(Object? v) => switch (v) {
       DateTime d => d,
       _ => null,
     };
+
+int? _int(Object? v) => switch (v) {
+      num n => n.toInt(),
+      String s => int.tryParse(s.trim()),
+      _ => null,
+    };
+
+/// Text, or empty — never the word "null".
+String _str(Object? v) => v == null ? '' : v.toString();
+
+List<WorkshopPayment> _payments(Object? v) => v is List
+    ? v
+        .whereType<Map>()
+        .map((e) => WorkshopPayment.fromJson(Map<String, dynamic>.from(e)))
+        .toList()
+    : const [];
 
 List<String> _strings(Object? v) =>
     v is List ? v.map((e) => e.toString()).toList() : const [];

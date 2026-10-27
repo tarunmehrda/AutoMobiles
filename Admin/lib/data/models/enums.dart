@@ -42,6 +42,11 @@ extension JobStatusX on JobStatus {
 /// invoice groups by the same split.
 enum LineKind { job, spare, lube }
 
+/// What can be put on a bill. The workshop bills Jobs (labour) and Spares
+/// (parts and stock) — its own intake sheet names no third kind. [LineKind.lube]
+/// stays in the enum only so lines saved before still read back and print.
+const List<LineKind> kBillKinds = [LineKind.job, LineKind.spare];
+
 extension LineKindX on LineKind {
   String get label => switch (this) {
     LineKind.job => 'Jobs'.tr,
@@ -109,7 +114,21 @@ extension PartGroupX on PartGroup {
 /// Lubes are the reason this exists — engine oil is sold by the litre and
 /// grease by the gram, so a bare count would bill a 500 ml top-up as one
 /// whole can.
-const List<String> kStockUnits = ['nos', 'ltr', 'ml', 'gm', 'can', 'set'];
+const List<String> kStockUnits = [
+  'nos',
+  'ltr',
+  'ml',
+  'kg',
+  'gm',
+  'can',
+  'set',
+  'box',
+  'pair',
+  'mtr',
+];
+
+/// The GST slabs a workshop bills at, as fractions.
+const List<double> kGstSlabs = [0, 0.05, 0.12, 0.18, 0.28];
 
 /// Per-line progress the mechanic ticks off on the mechanic copy.
 enum WorkState { pending, running, done, skipped }
@@ -134,7 +153,7 @@ enum DocKind { estimate, invoice, mechanicCopy }
 extension DocKindX on DocKind {
   String get label => switch (this) {
     DocKind.estimate => 'Estimate'.tr,
-    DocKind.invoice => 'Jobcard'.tr,
+    DocKind.invoice => 'Invoice'.tr,
     DocKind.mechanicCopy => 'Mechanic Copy'.tr,
   };
 
@@ -252,7 +271,7 @@ extension DentSeverityX on DentSeverity {
   String get label => switch (this) {
     DentSeverity.scratch => 'Scratch'.tr,
     DentSeverity.dent => 'Dent'.tr,
-    DentSeverity.crack => 'Break'.tr,
+    DentSeverity.crack => 'Broken'.tr,
     DentSeverity.rust => 'Rust'.tr,
   };
 

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -97,6 +99,16 @@ class BrandTile extends StatelessWidget {
   final VehicleBrand brand;
   final VoidCallback onTap;
   final bool selected;
+
+  /// How tall a tile [width] wide has to be. Roughly square, as it always
+  /// was, but never shorter than the badge plus two lines of name at the
+  /// phone's font size -- a fixed aspect ratio cut "Mercedes-Benz" in half
+  /// on a narrow phone with large text.
+  static double height(BuildContext context, double width) {
+    final line = MediaQuery.textScalerOf(context).scale(11) * 1.2;
+    const chrome = Gap.md * 2 + 46 + Gap.sm + 4;
+    return math.max(width / 0.92, chrome + line * 2);
+  }
 
   @override
   Widget build(BuildContext context) {

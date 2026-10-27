@@ -94,16 +94,32 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   final s = _slides[i];
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                    // The words take the height they need and the picture
+                    // gets whatever is left. It used to be the other way
+                    // round -- a fixed share for each -- and a large system
+                    // font pushed the copy off the bottom of a short phone.
                     child: Column(
                       children: [
-                        const Spacer(flex: 2),
+                        const SizedBox(height: Gap.xl),
                         Expanded(
-                          flex: 14,
-                          child: Center(child: _Illustration(index: i)),
+                          child: Center(
+                            // A mock of the app's own screens, drawn at one
+                            // size and scaled down to fit. It is decoration,
+                            // so the device font size is not applied to it.
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: MediaQuery.withNoTextScaling(
+                                child: SizedBox(
+                                  width: 340,
+                                  child: _Illustration(index: i),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        const Spacer(flex: 1),
-                        Expanded(
-                          flex: 8,
+                        const SizedBox(height: Gap.xl),
+                        SizedBox(
+                          width: double.infinity,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [

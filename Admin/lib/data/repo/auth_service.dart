@@ -278,6 +278,44 @@ class AuthService {
     }
   }
 
+  /// Deletes this account for good (`delete_workshop_account()`,
+  /// 32_delete_account.sql): an owner's workshop and everything in it, or a
+  /// staff member's login alone. Then signs out. Returns an error sentence,
+  /// or null once it is gone.
+  Future<String?> deleteWorkshopAccount() async {
+    if (!enabled) return _offline;
+    // While the session still works: the handset stops ringing for a
+    // workshop that is about to stop existing.
+    await PushService.instance.stop((token) async {
+      await _client?.rpc('forget_garage_device', params: {'tok': token});
+    });
+    try {
+      await _client!.rpc('delete_workshop_account');
+    } on PostgrestException catch (e) {
+      debugPrint('delete_workshop_account failed (${e.code}): ${e.message}');
+      if (e.code == 'PGRST202' || e.code == '42883') {
+        return 'The database needs the latest update '
+            '(supabase/32_delete_account.sql).';
+      }
+      return 'Could not delete the account. Try again in a moment.';
+    } catch (e) {
+      debugPrint('delete_workshop_account failed: $e');
+      return _offline;
+    }
+    // The login no longer exists; this only clears it from the phone.
+    try {
+      await _client!.auth.signOut();
+    } catch (e) {
+      debugPrint('signOut after delete: $e');
+    }
+    if (!kIsWeb) {
+      try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static const String _offline =
       'No connection to the backend. Check the network and try again.';
   static const String _generic = 'Something went wrong. Try again.';

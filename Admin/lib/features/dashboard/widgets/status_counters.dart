@@ -111,18 +111,24 @@ class _BucketCard extends ConsumerWidget {
                   ),
                   child: Icon(_icon(), size: 21, color: tint),
                 ),
-                const Spacer(),
-                Container(
-                  height: 22,
-                  width: 22,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: p.isDark ? p.surfaceSunken : p.canvas,
-                  ),
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    size: 16,
-                    color: p.inkMuted,
+                // Gives way on the narrowest phones rather than pushing the
+                // tile a pixel past its edge.
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: Container(
+                      height: 22,
+                      width: 22,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: p.isDark ? p.surfaceSunken : p.canvas,
+                      ),
+                      child: Icon(
+                        Icons.chevron_right_rounded,
+                        size: 16,
+                        color: p.inkMuted,
+                      ),
+                    ),
                   ),
                 ),
               ],

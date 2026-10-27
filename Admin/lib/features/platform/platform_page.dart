@@ -17,6 +17,7 @@ import '../../state/admin_state.dart';
 import 'widgets/content_section.dart';
 import 'widgets/heads_section.dart';
 import 'widgets/listing_review_card.dart';
+import 'widgets/partner_filters.dart';
 import 'widgets/register_card.dart';
 import 'widgets/request_card.dart';
 
@@ -27,40 +28,48 @@ extension on PlatformTab {
         PlatformTab.register => 'Partners',
         PlatformTab.requests => 'Requests',
         PlatformTab.listings => 'Listings',
-        PlatformTab.content => 'Content',
+        PlatformTab.content => 'Media',
         PlatformTab.heads => 'Heads',
       };
 }
 
-/// The platform back office: every partner, every part request, every
-/// listing awaiting a decision, and the welcome video. Commission is not
-/// here: it is shown in one place only, Settings → Commission, one partner
-/// at a time.
+/// One page, two doors.
 ///
-/// It lives inside the garage console rather than in an app of its own.
-/// Two kinds of account arrive here:
+/// * Buy & Sell (`/platform`, the dashboard tile): Requests and Listings
+///   only. A partner head sees every one; a garage owner sees only those
+///   addressed to their workshop.
+/// * Platform (`/platform/admin`, Settings → Platform): Partners, Content and
+///   Heads — the platform's business, for partner heads (27_partner_heads.sql)
+///   only. Anybody else who reaches it by URL is told so and sees nothing.
 ///
-/// * a partner head — one of the Gmail accounts in 27_partner_heads.sql,
-///   switched on — which sees every tab, Heads included;
-/// * a garage owner, from the dashboard's Buy & Sell tile, who sees only the
-///   part requests and listings addressed to their workshop. Partners,
-///   Content and Heads are the platform's business and are not shown to
-///   them at all.
+/// Commission is not here: it is shown in one place only, Settings →
+/// Commission, one partner at a time.
 class PlatformPage extends ConsumerStatefulWidget {
-  const PlatformPage({super.key});
+  const PlatformPage({super.key, this.admin = false, this.initialTab});
+
+  /// True for Settings → Platform, false for Buy & Sell.
+  final bool admin;
+
+  /// Where to open, e.g. Settings → Media lands on the Media tab.
+  final PlatformTab? initialTab;
 
   @override
   ConsumerState<PlatformPage> createState() => _PlatformPageState();
 }
 
 class _PlatformPageState extends ConsumerState<PlatformPage> {
-  PlatformTab _tab = PlatformTab.register;
+  late PlatformTab _tab =
+      widget.initialTab ??
+      (widget.admin ? PlatformTab.register : PlatformTab.requests);
   bool _loading = true;
 
   List<RegisteredGarage> _garages = const [];
   List<PlatformRequest> _requests = const [];
   List<PlatformListing> _listings = const [];
   PlatformSettings _settings = const PlatformSettings();
+
+  /// Active / Non-active, then State → District → PIN, on the Partners tab.
+  PartnerFilter _filter = const PartnerFilter();
 
   /// Null until the role check answers; the page shows its skeleton until
   /// then rather than flashing the wrong set of tabs.
@@ -71,10 +80,14 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
   /// partners yet" and "Nothing to review".
   bool _failed = false;
 
-  List<PlatformTab> get _tabs => switch (_platform) {
-        true => PlatformTab.values,
-        false => const [PlatformTab.requests, PlatformTab.listings],
-        null => const [],
+  List<PlatformTab> get _tabs => switch ((_platform, widget.admin)) {
+        (null, _) || (false, true) => const [],
+        (true, true) => const [
+            PlatformTab.register,
+            PlatformTab.content,
+            PlatformTab.heads,
+          ],
+        (_, false) => const [PlatformTab.requests, PlatformTab.listings],
       };
 
   @override
@@ -87,9 +100,17 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
     setState(() => _loading = true);
     final gw = ref.read(platformGatewayProvider);
     // Asked afresh on every open: another head may have switched this one
-    // off (or back on) since the answer was cached.
-    final platform = await ref.refresh(isPlatformAdminProvider.future);
+    // off (or back on) since the answer was cached. If it cannot be asked,
+    // the last answer stands and the page says something failed, rather
+    // than dropping a head to the owner's two tabs over a bad connection.
+    final cached = ref.read(isPlatformAdminProvider).valueOrNull;
+    final fresh = await gw.checkPlatformAdmin();
     if (!mounted) return;
+    if (fresh != null && fresh != cached) {
+      ref.invalidate(isPlatformAdminProvider);
+    }
+    final platform = fresh ?? cached ?? _platform ?? false;
+    final checkFailed = fresh == null;
 
     if (!platform) {
       // A garage owner: only what is addressed to their workshop.
@@ -101,10 +122,10 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
       setState(() {
         _platform = false;
         _loading = false;
-        _failed = requests == null || listings == null;
+        _failed = checkFailed || requests == null || listings == null;
         _requests = requests ?? _requests;
         _listings = listings ?? _listings;
-        if (!_tabs.contains(_tab)) _tab = _tabs.first;
+        if (_tabs.isNotEmpty && !_tabs.contains(_tab)) _tab = _tabs.first;
       });
       return;
     }
@@ -119,7 +140,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
     setState(() {
       _platform = true;
       _loading = false;
-      _failed = results.any((r) => r == null);
+      _failed = checkFailed || results.any((r) => r == null);
       _garages = results[0] as List<RegisteredGarage>? ?? _garages;
       _requests = results[1] as List<PlatformRequest>? ?? _requests;
       _listings = results[2] as List<PlatformListing>? ?? _listings;
@@ -142,10 +163,12 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
     return Scaffold(
       backgroundColor: p.canvas,
       appBar: GHeader(
-        title: _platform == false ? 'Buy & Sell' : 'Platform',
-        subtitle: _platform == false
-            ? 'Parts requested from and offered to your workshop'
-            : '${_garages.length} partners',
+        title: widget.admin ? 'Platform' : 'Buy & Sell',
+        subtitle: widget.admin
+            ? (_platform == true ? '${_garages.length} partners' : null)
+            : _platform == false
+                ? 'Parts requested from and offered to your workshop'
+                : 'Every part request and listing',
       ),
       body: Column(
         children: [
@@ -172,6 +195,12 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
               },
             ),
           ),
+          if (_tab == PlatformTab.register && _platform == true && !_loading)
+            PartnerFilterBar(
+              garages: _garages,
+              filter: _filter,
+              onChanged: (f) => setState(() => _filter = f),
+            ),
           if (_failed && !_loading)
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -219,20 +248,20 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
     );
   }
 
-  Widget _body(AppPalette p) => switch (_tab) {
-        PlatformTab.register => _list(
-            empty: const GEmptyState(
-              icon: Icons.handshake_outlined,
-              title: 'No partners yet',
-              message: 'Workshops that register from the customer app appear '
-                  'here for you to verify and list.',
-            ),
-            count: _garages.length,
-            builder: (i) => RegisterCard(
-              garage: _garages[i],
-              onChanged: _load,
-            ),
+  Widget _body(AppPalette p) => _tabs.isEmpty
+      ? _list(
+          empty: const GEmptyState(
+            icon: Icons.lock_outline_rounded,
+            title: 'Partner heads only',
+            message: 'Partners, media and heads are run by the platform.',
           ),
+          count: 0,
+          builder: (_) => const SizedBox.shrink(),
+        )
+      : _tabBody();
+
+  Widget _tabBody() => switch (_tab) {
+        PlatformTab.register => _partners(),
         PlatformTab.requests => _list(
             empty: const GEmptyState(
               icon: Icons.build_circle_outlined,
@@ -267,6 +296,44 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
         PlatformTab.heads => const HeadsSection(),
       };
 
+  Widget _partners() {
+    final shown = _filter.apply(_garages);
+    return _list(
+      empty: _garages.isEmpty
+          ? const GEmptyState(
+              icon: Icons.handshake_outlined,
+              title: 'No partners yet',
+              message: 'Workshops that register from the customer app appear '
+                  'here for you to verify and list.',
+            )
+          : _filter.narrowed
+              ? const GEmptyState(
+                  icon: Icons.filter_alt_off_outlined,
+                  title: 'No partners here',
+                  message: 'Nobody on this side matches that State, '
+                      'District and PIN code. Clear the filters to see all.',
+                )
+              : _filter.active
+                  ? const GEmptyState(
+                      icon: Icons.block_rounded,
+                      title: 'Every partner is blocked',
+                      message: 'Unblock one from Non-active to bring it back.',
+                    )
+                  : const GEmptyState(
+                      icon: Icons.verified_user_outlined,
+                      title: 'Nobody is blocked',
+                      message: 'Partners you block appear here, ready to '
+                          'unblock.',
+                    ),
+      count: shown.length,
+      builder: (i) => RegisterCard(
+        key: ValueKey(shown[i].id),
+        garage: shown[i],
+        onChanged: _load,
+      ),
+    );
+  }
+
   Widget _list({
     required Widget empty,
     required int count,
@@ -277,7 +344,14 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
       // is exactly when somebody wants to refresh.
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: [SizedBox(height: 320, child: empty)],
+        // A floor, not a ceiling: at a large font the empty state is taller
+        // than 320 and grows instead of overflowing.
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 320),
+            child: empty,
+          ),
+        ],
       );
     }
     return ListView.separated(

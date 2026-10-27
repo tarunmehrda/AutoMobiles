@@ -16,7 +16,7 @@ import 'vehicle_blueprint.dart';
 
 /// One face of the vehicle, the way the counter thinks about it: the four
 /// flanks, what you see standing over it, and what is inside.
-enum VehicleArea { front, driver, passenger, rear, roof, interior }
+enum VehicleArea { front, driver, passenger, rear, roof, interior, underbody }
 
 extension VehicleAreaX on VehicleArea {
   /// The chip caption. A car has a driver's and a passenger's flank; a bike
@@ -35,6 +35,7 @@ extension VehicleAreaX on VehicleArea {
       VehicleArea.roof => kind == VehicleKind.twoWheeler ? 'Top'.tr : 'Roof'.tr,
       VehicleArea.interior =>
         kind == VehicleKind.twoWheeler ? 'Controls'.tr : 'Interior'.tr,
+      VehicleArea.underbody => 'Underbody'.tr,
     };
   }
 
@@ -46,14 +47,18 @@ extension VehicleAreaX on VehicleArea {
   };
 
   /// Which blueprint view the area is marked up on. The inside of the vehicle
-  /// has no orthographic drawing, so it is listed rather than plotted.
+  /// has no orthographic drawing, nor has the underside, so both are listed
+  /// rather than plotted.
   String? get view => switch (this) {
     VehicleArea.front => 'front',
     VehicleArea.driver || VehicleArea.passenger => 'side',
     VehicleArea.rear => 'rear',
     VehicleArea.roof => 'top',
-    VehicleArea.interior => null,
+    VehicleArea.interior || VehicleArea.underbody => null,
   };
+
+  /// Listed rather than drawn — see [view].
+  bool get listed => view == null;
 
   IconData get icon => switch (this) {
     VehicleArea.front => Icons.arrow_upward_rounded,
@@ -62,6 +67,7 @@ extension VehicleAreaX on VehicleArea {
     VehicleArea.rear => Icons.arrow_downward_rounded,
     VehicleArea.roof => Icons.vertical_align_top_rounded,
     VehicleArea.interior => Icons.weekend_rounded,
+    VehicleArea.underbody => Icons.vertical_align_bottom_rounded,
   };
 }
 
@@ -433,6 +439,53 @@ const _sixInside = <String>[
   'Roof lining',
 ];
 
+// --- underbody -------------------------------------------------------------
+
+const _fourUnder = <String>[
+  'Engine guard',
+  'Oil sump',
+  'Silencer / exhaust',
+  'Fuel tank',
+  'Front suspension',
+  'Rear suspension',
+  'Axle / drive shaft',
+  'Floor pan',
+  'Side skirt underside',
+  'Spare wheel well',
+];
+
+const _twoUnder = <String>[
+  'Engine guard',
+  'Silencer / exhaust',
+  'Crankcase',
+  'Main stand',
+  'Side stand',
+  'Chain cover',
+  'Chassis frame',
+];
+
+const _threeUnder = <String>[
+  'Engine guard',
+  'Silencer / exhaust',
+  'Fuel tank',
+  'Rear axle',
+  'Front suspension',
+  'Chassis frame',
+  'Floor pan',
+];
+
+const _sixUnder = <String>[
+  'Chassis frame',
+  'Fuel tank',
+  'Silencer / exhaust',
+  'Propeller shaft',
+  'Front axle',
+  'Rear axle',
+  'Leaf springs',
+  'Air tanks',
+  'Battery box',
+];
+
 // --- assembly --------------------------------------------------------------
 
 const Map<VehicleKind, List<_Flank>> _sides = {
@@ -472,6 +525,13 @@ const Map<VehicleKind, List<String>> _insides = {
   VehicleKind.sixWheeler: _sixInside,
 };
 
+const Map<VehicleKind, List<String>> _unders = {
+  VehicleKind.twoWheeler: _twoUnder,
+  VehicleKind.threeWheeler: _threeUnder,
+  VehicleKind.fourWheeler: _fourUnder,
+  VehicleKind.sixWheeler: _sixUnder,
+};
+
 /// Built once per body and face, because the flank lists are expanded into two
 /// sets of parts and the picker asks for them on every rebuild.
 final Map<String, List<VehiclePart>> _cache = {};
@@ -481,9 +541,10 @@ List<VehiclePart> partsFor(VehicleKind kind, VehicleArea area) =>
     _cache.putIfAbsent('${kind.name}.${area.name}', () => _build(kind, area));
 
 List<VehiclePart> _build(VehicleKind kind, VehicleArea area) {
-  if (area == VehicleArea.interior) {
+  if (area.listed) {
+    final names = area == VehicleArea.interior ? _insides : _unders;
     return [
-      for (final n in _insides[kind] ?? const <String>[])
+      for (final n in names[kind] ?? const <String>[])
         VehiclePart(
           id: n.toLowerCase().replaceAll(RegExp('[^a-z0-9]+'), '_'),
           name: n,

@@ -78,43 +78,51 @@ class GEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.c;
     final accent = tone ?? p.accent;
+    // Centred when it fits, scrollable when it does not: under a tab bar on a
+    // short phone with a large font the full state is taller than the space
+    // it is given. Bouncing without "always scrollable", so a state that
+    // does fit never takes a drag away from the page around it.
     return Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-            horizontal: Gap.h1, vertical: compact ? Gap.xxl : Gap.h3),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              height: compact ? 64 : 84,
-              width: compact ? 64 : 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [
-                  accent.withValues(alpha: 0.16),
-                  accent.withValues(alpha: 0.02),
-                ]),
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context)
+            .copyWith(physics: const BouncingScrollPhysics()),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+              horizontal: Gap.h1, vertical: compact ? Gap.xxl : Gap.h3),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                height: compact ? 64 : 84,
+                width: compact ? 64 : 84,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    accent.withValues(alpha: 0.16),
+                    accent.withValues(alpha: 0.02),
+                  ]),
+                ),
+                child: Icon(icon, size: compact ? 28 : 36, color: accent),
               ),
-              child: Icon(icon, size: compact ? 28 : 36, color: accent),
-            ),
-            SizedBox(height: compact ? Gap.lg : Gap.xxl),
-            Text(title,
-                textAlign: TextAlign.center,
-                style: (compact ? AppType.h2 : AppType.d3).c(p.ink)),
-            const SizedBox(height: Gap.sm),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: AppType.bodyM.c(p.inkMuted)),
-            if (actionLabel != null) ...[
-              const SizedBox(height: Gap.xxl),
-              GButton(
-                label: actionLabel!,
-                onPressed: onAction,
-                expand: false,
-                size: GButtonSize.md,
-              ),
+              SizedBox(height: compact ? Gap.lg : Gap.xxl),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: (compact ? AppType.h2 : AppType.d3).c(p.ink)),
+              const SizedBox(height: Gap.sm),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: AppType.bodyM.c(p.inkMuted)),
+              if (actionLabel != null) ...[
+                const SizedBox(height: Gap.xxl),
+                GButton(
+                  label: actionLabel!,
+                  onPressed: onAction,
+                  expand: false,
+                  size: GButtonSize.md,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

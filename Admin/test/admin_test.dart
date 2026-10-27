@@ -797,6 +797,9 @@ void main() {
             'state': 'pending',
             'remark': '',
             'master_id': null,
+            // 35_jobcard_intake.sql's job_card_json() adds these two.
+            'gst_rate': null,
+            'unit': '',
           },
         ],
       };

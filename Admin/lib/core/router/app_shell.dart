@@ -79,7 +79,11 @@ class AppShell extends ConsumerWidget {
         onTap: (i) => _go(context, i),
         // Support is a sheet, not a page, exactly as the counter expects.
         onSupport: () => showSupportSheet(context),
-        onCreate: () => context.push('/job/new'),
+        // Only for a role that may open a job card. The slot stays, empty,
+        // so the other four do not shift under a thumb that knows them.
+        onCreate: ref.watch(accessProvider).openJobs
+            ? () => context.push('/job/new')
+            : null,
         badges: {1: open},
       ),
     );
@@ -404,7 +408,7 @@ class _NavBar extends StatelessWidget {
     required this.branch,
     required this.onTap,
     required this.onSupport,
-    required this.onCreate,
+    this.onCreate,
     this.badges = const {},
   });
 
@@ -412,7 +416,7 @@ class _NavBar extends StatelessWidget {
   final int branch;
   final ValueChanged<int> onTap;
   final VoidCallback onSupport;
-  final VoidCallback onCreate;
+  final VoidCallback? onCreate;
   final Map<int, int> badges;
 
   @override
@@ -470,7 +474,9 @@ class _NavBar extends StatelessWidget {
                         ),
                       SizedBox(
                         width: w,
-                        child: _CreateSlot(onTap: onCreate),
+                        child: onCreate == null
+                            ? const SizedBox.shrink()
+                            : _CreateSlot(onTap: onCreate!),
                       ),
                       SizedBox(
                         width: w,

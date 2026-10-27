@@ -28,7 +28,7 @@ BlueprintView? viewFor(VehicleKind kind, VehicleArea area) {
 /// answers to and is therefore never plotted on the sheet.
 String areaViewId(VehicleKind kind, VehicleArea area) {
   final v = viewFor(kind, area);
-  return v == null ? '${kind.name}.interior' : viewId(kind, v);
+  return v == null ? '${kind.name}.${area.name}' : viewId(kind, v);
 }
 
 /// Damage recorded by tapping the component it is on.
@@ -125,7 +125,30 @@ class _ComponentSheetState extends State<ComponentSheet> {
     final parts = partsFor(widget.kind, widget.area);
     final hits = _query.isEmpty ? const <VehiclePart>[] : _hits();
 
+    // On a short screen — a small phone, a large font — the header, the
+    // search and the area grid alone fill the space, and the drawing had
+    // nothing left to shrink into. There the whole panel scrolls instead,
+    // with the drawing at a height it can still be tapped at.
+    return LayoutBuilder(
+      builder: (context, box) {
+        final short = box.maxHeight < 480;
+        final panel = _panel(p, parts, hits, short: short);
+        return short ? SingleChildScrollView(child: panel) : panel;
+      },
+    );
+  }
+
+  Widget _face({required bool short, required Widget child}) =>
+      short ? SizedBox(height: 240, child: child) : Expanded(child: child);
+
+  Widget _panel(
+    AppPalette p,
+    List<VehiclePart> parts,
+    List<VehiclePart> hits, {
+    required bool short,
+  }) {
     return Column(
+      mainAxisSize: short ? MainAxisSize.min : MainAxisSize.max,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.sm),
@@ -148,7 +171,8 @@ class _ComponentSheetState extends State<ComponentSheet> {
         ),
 
         // --- the face on show ------------------------------------------------
-        Expanded(
+        _face(
+          short: short,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
             child: Container(
@@ -159,7 +183,7 @@ class _ComponentSheetState extends State<ComponentSheet> {
                 border: Border.all(color: p.line),
               ),
               padding: const EdgeInsets.all(Gap.md),
-              child: widget.area == VehicleArea.interior
+              child: widget.area.listed
                   ? _InsideList(
                       parts: parts,
                       markOn: _markOn,
@@ -452,8 +476,13 @@ class _AreaGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.c;
     const rows = [
-      [VehicleArea.front, VehicleArea.driver, VehicleArea.passenger],
-      [VehicleArea.rear, VehicleArea.roof, VehicleArea.interior],
+      [
+        VehicleArea.front,
+        VehicleArea.driver,
+        VehicleArea.passenger,
+        VehicleArea.rear,
+      ],
+      [VehicleArea.roof, VehicleArea.interior, VehicleArea.underbody],
     ];
 
     return Column(

@@ -8,9 +8,10 @@
 -- one account, the profile with role = 'platform' (19_*.sql). It now
 -- belongs to whoever is on this list AND switched on:
 --
---   firefringe@gmail.com
 --   balajiautomobiles088@gmail.com
 --   vjalaria@gmail.com
+--
+-- (firefringe@gmail.com was on this list; 30_super_admins.sql removes it.)
 --
 -- Any head can switch another off or on again from
 -- Platform -> Heads. The list itself is only ever changed here, in the SQL
@@ -42,7 +43,6 @@ revoke all on public.platform_heads from public, anon, authenticated;
 -- EDIT THIS to change who the heads are. A re-run never switches back on
 -- a head that was switched off.
 insert into public.platform_heads (email) values
-  ('firefringe@gmail.com'),
   ('balajiautomobiles088@gmail.com'),
   ('vjalaria@gmail.com')
 on conflict (email) do nothing;

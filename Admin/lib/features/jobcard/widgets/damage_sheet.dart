@@ -11,11 +11,15 @@ import 'vehicle_blueprint.dart';
 /// The colour a kind of damage is marked in, on screen and on the printed
 /// copy. Kept in one place so the picker, the sheet and the summary list can
 /// never drift apart.
+///
+/// The workshop's own key, as printed on its intake sheet: scratch red, dent
+/// yellow, broken green, rust blue. Fixed rather than taken from the palette
+/// so the key reads the same in dark mode and on paper.
 Color dentColor(AppPalette p, DentSeverity s) => switch (s) {
-  DentSeverity.scratch => p.warning,
+  DentSeverity.scratch => const Color(0xFFE5484D),
   DentSeverity.dent => const Color(0xFFF2C744),
-  DentSeverity.crack => p.danger,
-  DentSeverity.rust => p.info,
+  DentSeverity.crack => const Color(0xFF30A46C),
+  DentSeverity.rust => const Color(0xFF3E7BFA),
 };
 
 /// Every view of the vehicle on one sheet, painted on with a highlighter.

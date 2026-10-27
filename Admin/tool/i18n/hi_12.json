@@ -1,0 +1,20 @@
+{
+ "Account deleted. Everything is gone.": "अकाउंट डिलीट हो गया। सब कुछ हट गया।",
+ "Delete account": "अकाउंट डिलीट करें",
+ "Delete forever": "हमेशा के लिए डिलीट करें",
+ "Deleted for good": "हमेशा के लिए डिलीट",
+ "Erase the workshop and everything in it": "वर्कशॉप और उसमें सब कुछ मिटाएँ",
+ "Keep my account": "मेरा अकाउंट रखें",
+ "Remove your login from this workshop": "इस वर्कशॉप से अपना लॉगिन हटाएँ",
+ "Stock, bookings, expenses, cash book and reports": "स्टॉक, बुकिंग, खर्च, कैश बुक और रिपोर्ट",
+ "The workshop and its job cards stay with the owner.": "वर्कशॉप और उसके जॉब कार्ड मालिक के पास रहेंगे।",
+ "The workshop {0}": "वर्कशॉप {0}",
+ "This cannot be undone": "यह वापस नहीं हो सकता",
+ "Type DELETE to confirm": "पक्का करने के लिए DELETE लिखें",
+ "Your login": "आपका लॉगिन",
+ "Your login and your access to {0}": "आपका लॉगिन और {0} में आपका एक्सेस",
+ "this workshop": "इस वर्कशॉप",
+ "{0} customers and their vehicles": "{0} ग्राहक और उनकी गाड़ियाँ",
+ "{0} job cards, with their bills and payments": "{0} जॉब कार्ड, उनके बिल और भुगतान के साथ",
+ "{0} staff, their logins and attendance": "{0} स्टाफ़, उनके लॉगिन और हाज़िरी"
+}

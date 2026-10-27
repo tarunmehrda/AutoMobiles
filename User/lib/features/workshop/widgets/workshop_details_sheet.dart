@@ -126,11 +126,15 @@ class _WorkshopDetailsSheet extends ConsumerWidget {
                                       Icon(Icons.star_rounded,
                                           size: 15, color: p.volt),
                                       const SizedBox(width: 4),
-                                      Text(
-                                        '${shop.rating.toStringAsFixed(1)} '
-                                        'Rating • ${shop.reviewCount} reviews',
-                                        style: AppType.bodyS.c(p.onInverse
-                                            .withValues(alpha: 0.7)),
+                                      Expanded(
+                                        child: Text(
+                                          '${shop.rating.toStringAsFixed(1)} '
+                                          'Rating • ${shop.reviewCount} reviews',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: AppType.bodyS.c(p.onInverse
+                                              .withValues(alpha: 0.7)),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -268,7 +272,7 @@ class _WorkshopDetailsSheet extends ConsumerWidget {
                                 children: [
                                   Text(
                                     shop.services[i].name,
-                                    maxLines: 1,
+                                    maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: AppType.labelL.c(p.ink),
                                   ),

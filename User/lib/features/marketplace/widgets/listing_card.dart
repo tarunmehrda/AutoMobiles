@@ -102,24 +102,27 @@ class ListingCard extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: Gap.sm),
-                    Row(
+                    // Wraps rather than runs off the card: a six-figure
+                    // price and two pills do not fit beside a photo on a
+                    // narrow phone.
+                    Wrap(
+                      spacing: Gap.sm,
+                      runSpacing: Gap.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(Fmt.money(listing.price),
                             style: AppType.money.c(p.ink)),
-                        const SizedBox(width: Gap.sm),
                         GPill(
                           label: listing.condition.label,
                           tone: GTone.neutral,
                           compact: true,
                         ),
-                        if (showStatus) ...[
-                          const SizedBox(width: Gap.xs),
+                        if (showStatus)
                           GPill(
                             label: listing.status.label,
                             tone: _tone,
                             compact: true,
                           ),
-                        ],
                       ],
                     ),
                   ],
@@ -153,7 +156,12 @@ class ListingCard extends StatelessWidget {
               children: [
                 Icon(Icons.place_outlined, size: 14, color: p.inkFaint),
                 const SizedBox(width: Gap.xs),
-                Text(listing.city, style: AppType.labelS.c(p.inkFaint)),
+                Flexible(
+                  child: Text(listing.city,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.labelS.c(p.inkFaint)),
+                ),
               ],
             ),
           ],

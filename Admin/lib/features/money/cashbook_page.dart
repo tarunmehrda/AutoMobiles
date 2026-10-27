@@ -16,6 +16,8 @@ import '../../core/widgets/g_art.dart';
 import '../../core/widgets/g_state.dart';
 import '../../core/widgets/pressable.dart';
 import '../../data/models/entities.dart';
+import '../../data/models/enums.dart';
+import '../trade/trade_widgets.dart';
 import '../../state/admin_state.dart';
 import '../../state/providers.dart';
 
@@ -319,9 +321,13 @@ class _CashRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
     final tint = entry.inward ? p.success : p.danger;
+    final data = ref.watch(adminProvider);
+    final account = accountLabel(data, data.accountOf(entry));
     return Dismissible(
       key: ValueKey(entry.id),
-      direction: entry.jobCardId == null
+      // A card's payment is taken back on the card. Once that card is gone,
+      // its line is an orphan and may be swiped away here.
+      direction: entry.jobCardId == null || data.jobById(entry.jobCardId) == null
           ? DismissDirection.endToStart
           : DismissDirection.none,
       background: Container(
@@ -361,23 +367,46 @@ class _CashRow extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                     style: AppType.labelL.c(p.ink),
                   ),
-                  if (entry.reason.isNotEmpty) ...[
-                    const SizedBox(height: Gap.sm),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Gap.sm,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: p.surfaceSunken,
-                        borderRadius: R.all(R.pill),
-                      ),
-                      child: Text(
-                        entry.reason,
-                        style: AppType.labelS.s(10.5).c(p.inkMuted),
-                      ),
-                    ),
-                  ],
+                  const SizedBox(height: Gap.sm),
+                  // How it moved and through which account, so a UPI receipt
+                  // is never read as cash in the drawer.
+                  Wrap(
+                    spacing: Gap.xs,
+                    runSpacing: Gap.xs,
+                    children: [
+                      for (final (text, icon) in [
+                        ('${entry.mode.label} · $account', entry.mode.icon),
+                        if (entry.reason.isNotEmpty) (entry.reason, null),
+                      ])
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Gap.sm,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: p.surfaceSunken,
+                            borderRadius: R.all(R.pill),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (icon != null) ...[
+                                Icon(icon, size: 11, color: p.inkMuted),
+                                const SizedBox(width: 3),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  text,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppType.labelS.s(10.5).c(p.inkMuted),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -414,6 +443,9 @@ class _CashSheetState extends ConsumerState<_CashSheet> {
   final _party = TextEditingController();
   final _amount = TextEditingController();
   final _reason = TextEditingController();
+  PayMode _mode = PayMode.cash;
+  String? _account;
+  DateTime _at = DateTime.now();
 
   @override
   void dispose() {
@@ -435,6 +467,10 @@ class _CashSheetState extends ConsumerState<_CashSheet> {
           amount: _value,
           inward: widget.inward,
           reason: _reason.text,
+          mode: _mode,
+          accountId:
+              _account ?? defaultAccountFor(ref.read(adminProvider), _mode),
+          at: _at,
         );
     Navigator.of(context).pop();
     GFeedback.success(
@@ -511,6 +547,21 @@ class _CashSheetState extends ConsumerState<_CashSheet> {
                   hint: 'Optional'.tr,
                   controller: _reason,
                   textCapitalization: TextCapitalization.sentences,
+                ),
+                const SizedBox(height: Gap.lg),
+                PayControls(
+                  mode: _mode,
+                  accountId: _account,
+                  onChanged: (m, a) => setState(() {
+                    _mode = m;
+                    _account = a;
+                  }),
+                ),
+                const SizedBox(height: Gap.lg),
+                DateField(
+                  label: 'Date'.tr,
+                  value: _at,
+                  onChanged: (d) => setState(() => _at = d),
                 ),
                 const SizedBox(height: Gap.xl),
                 GButton(

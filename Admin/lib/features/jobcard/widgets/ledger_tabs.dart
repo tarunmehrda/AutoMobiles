@@ -476,7 +476,7 @@ Future<void> showCollectSheet(
     child: StatefulBuilder(
       builder: (context, setSheet) {
         final p = context.c;
-        return Padding(
+        return SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             Gap.page,
             Gap.lg,
@@ -501,51 +501,11 @@ Future<void> showCollectSheet(
                 ),
               ),
               const SizedBox(height: Gap.lg),
-              Text('MODE', style: AppType.over.c(p.inkFaint)),
+              Text('RECEIVED BY'.tr, style: AppType.over.c(p.inkFaint)),
               const SizedBox(height: Gap.sm),
-              Wrap(
-                spacing: Gap.sm,
-                runSpacing: Gap.sm,
-                children: [
-                  for (final m in PayMode.values)
-                    Pressable(
-                      onTap: () => setSheet(() => mode = m),
-                      scale: 0.95,
-                      child: AnimatedContainer(
-                        duration: Motion.fast,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Gap.md,
-                          vertical: Gap.sm,
-                        ),
-                        decoration: BoxDecoration(
-                          color: m == mode ? p.ink : p.surface,
-                          borderRadius: R.all(R.pill),
-                          border: Border.all(color: m == mode ? p.ink : p.line),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              m.icon,
-                              size: 15,
-                              color: m == mode
-                                  ? (p.isDark ? p.canvas : Colors.white)
-                                  : p.inkMuted,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              m.label,
-                              style: AppType.labelM.c(
-                                m == mode
-                                    ? (p.isDark ? p.canvas : Colors.white)
-                                    : p.inkSoft,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
+              PayModePicker(
+                mode: mode,
+                onChanged: (m) => setSheet(() => mode = m),
               ),
               const SizedBox(height: Gap.xxl),
               GButton.accent(
@@ -572,4 +532,117 @@ Future<void> showCollectSheet(
       },
     ),
   );
+}
+
+// ---------------------------------------------------------------------------
+
+/// The ways money is taken at the counter, in the order they are reached for.
+///
+/// Card is not offered: the workshops this is for take it through a UPI
+/// soundbox or not at all, and a separate "Card" bucket only split the bank
+/// statement in two. [PayMode.card] stays in the model so payments recorded
+/// as card before still read as card everywhere they are listed.
+const List<PayMode> kPickableModes = [
+  PayMode.cash,
+  PayMode.upi,
+  PayMode.cheque,
+  PayMode.netbanking,
+];
+
+/// Cash / UPI / Cheque / Net Banking, with where the money will land said
+/// underneath.
+///
+/// The cash book files each payment by its mode — cash into the drawer,
+/// everything else into the primary bank — so the counter sees which before
+/// pressing anything, rather than finding the UPI money in the wrong account
+/// at the end of the day. With no bank account set up the line says so.
+class PayModePicker extends ConsumerWidget {
+  const PayModePicker({super.key, required this.mode, required this.onChanged});
+
+  final PayMode mode;
+  final ValueChanged<PayMode> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.c;
+    final data = ref.watch(adminProvider);
+    final bank = data.primaryBank;
+    final cash = mode == PayMode.cash;
+    final (dest, ok) = cash
+        ? ('Goes to {0}'.trf([data.cashAccount.title]), true)
+        : bank != null
+        ? ('Goes to {0}'.trf([bank.title]), true)
+        : ('Add a bank account under Bank & Cash'.tr, false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
+          children: [
+            for (final m in kPickableModes)
+              Pressable(
+                onTap: () => onChanged(m),
+                scale: 0.95,
+                child: AnimatedContainer(
+                  duration: Motion.fast,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Gap.md,
+                    vertical: Gap.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: m == mode ? p.ink : p.surface,
+                    borderRadius: R.all(R.pill),
+                    border: Border.all(color: m == mode ? p.ink : p.line),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        m.icon,
+                        size: 15,
+                        color: m == mode
+                            ? (p.isDark ? p.canvas : Colors.white)
+                            : p.inkMuted,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        m.label,
+                        style: AppType.labelM.c(
+                          m == mode
+                              ? (p.isDark ? p.canvas : Colors.white)
+                              : p.inkSoft,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: Gap.sm),
+        Row(
+          children: [
+            Icon(
+              ok
+                  ? (cash
+                        ? Icons.payments_rounded
+                        : Icons.account_balance_rounded)
+                  : Icons.info_outline_rounded,
+              size: 15,
+              color: ok ? p.inkMuted : p.warning,
+            ),
+            const SizedBox(width: Gap.xs),
+            Expanded(
+              child: Text(
+                dest,
+                style: AppType.bodyS.c(ok ? p.inkMuted : p.warning),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }

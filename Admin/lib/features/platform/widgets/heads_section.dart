@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_type.dart';
+import '../../../core/widgets/g_button.dart';
 import '../../../core/widgets/g_feedback.dart';
+import '../../../core/widgets/g_field.dart';
 import '../../../core/widgets/g_state.dart';
 import '../../../data/repo/platform_gateway.dart';
 
@@ -13,9 +15,10 @@ import '../../../data/repo/platform_gateway.dart';
 /// each with a switch. A head that is off sees their own workshop and
 /// nothing of the platform until another head switches them back on.
 ///
-/// Who is on the list is set in the SQL editor (27_partner_heads.sql) and
-/// nowhere else; this screen only turns them on and off. The database keeps
-/// at least one head on, so the platform cannot lock itself out.
+/// A head can add another by Gmail address (33_add_partner_head.sql); the
+/// new head is on from the start. Nobody is removed from here: a head added
+/// by mistake is switched off. The database keeps at least one head on, so
+/// the platform cannot lock itself out.
 class HeadsSection extends ConsumerStatefulWidget {
   const HeadsSection({super.key});
 
@@ -27,11 +30,19 @@ class _HeadsSectionState extends ConsumerState<HeadsSection> {
   List<PlatformHead>? _heads;
   bool _loading = true;
   String? _busy;
+  final _email = TextEditingController();
+  bool _adding = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _email.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -71,6 +82,33 @@ class _HeadsSectionState extends ConsumerState<HeadsSection> {
     await _load();
   }
 
+  Future<void> _add() async {
+    final email = _email.text.trim().toLowerCase();
+    if (email.isEmpty) return;
+    final go = await GFeedback.confirm(
+      context,
+      icon: Icons.admin_panel_settings_outlined,
+      title: 'Make $email a partner head?',
+      message: 'Once they sign in to this app with that address they see '
+          'every partner, request, listing and commission, and can add '
+          'heads of their own.',
+      confirmLabel: 'Add head',
+    );
+    if (!go || !mounted) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _adding = true);
+    final error = await ref.read(platformGatewayProvider).addHead(email);
+    if (!mounted) return;
+    setState(() => _adding = false);
+    if (error != null) {
+      GFeedback.error(context, error);
+      return;
+    }
+    _email.clear();
+    GFeedback.success(context, '$email is now a partner head');
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.c;
@@ -84,10 +122,10 @@ class _HeadsSectionState extends ConsumerState<HeadsSection> {
     if (heads == null) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(
-            height: 320,
-            child: GEmptyState(
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 320),
+            child: const GEmptyState(
               icon: Icons.cloud_off_rounded,
               title: 'Could not load the partner heads',
               message: 'Pull down to try again.',
@@ -155,6 +193,32 @@ class _HeadsSectionState extends ConsumerState<HeadsSection> {
             'A partner head sees every partner, request, listing and '
             'commission. Switched off, they keep their own workshop and lose '
             'only this section. At least one head always stays on.',
+            style: AppType.bodyS.c(p.inkMuted),
+          ),
+          const SizedBox(height: Gap.xl),
+          Text('Add a head', style: AppType.labelM.c(p.ink)),
+          const SizedBox(height: Gap.sm),
+          GField(
+            hint: 'name@gmail.com',
+            controller: _email,
+            keyboardType: TextInputType.emailAddress,
+            textCapitalization: TextCapitalization.none,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) {
+              if (!_adding) _add();
+            },
+          ),
+          const SizedBox(height: Gap.md),
+          GButton(
+            label: 'Add head',
+            icon: Icons.person_add_alt_1_rounded,
+            loading: _adding,
+            onPressed: _adding ? null : _add,
+          ),
+          const SizedBox(height: Gap.sm),
+          Text(
+            'They become a head the moment they sign in to this app with '
+            'that address.',
             style: AppType.bodyS.c(p.inkMuted),
           ),
         ],

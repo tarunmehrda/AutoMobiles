@@ -334,10 +334,18 @@ class VehicleDetailPage extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
           Text(label, style: AppType.bodyM.c(p.inkMuted)),
-          const Spacer(),
-          Text(value, style: AppType.labelM.c(p.ink)),
+          const SizedBox(width: Gap.lg),
+          // A long variant or VIN wraps under itself, right-aligned, rather
+          // than running off the card.
+          Expanded(
+            child: Text(value,
+                textAlign: TextAlign.end,
+                style: AppType.labelM.c(p.ink)),
+          ),
         ],
       ),
     );
@@ -409,28 +417,32 @@ class VehicleDetailPage extends ConsumerWidget {
       context,
       title: 'Update odometer',
       subtitle: 'Keeps your service reminders accurate',
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page,
-            Gap.h1 + MediaQuery.of(context).viewInsets.bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            GField(
-              label: 'Current reading',
-              controller: controller,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              suffix: Text('km',
-                  style: AppType.labelM.c(context.c.inkMuted)),
-            ),
-            const SizedBox(height: Gap.xl),
-            GButton.accent(
-              label: 'Save',
-              onPressed: () => Navigator.of(context)
-                  .pop(int.tryParse(controller.text) ?? current),
-            ),
-          ],
+      // Scrolls, so the keyboard on a short phone pushes the Save button up
+      // under the field instead of off the bottom of the sheet.
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page,
+              Gap.h1 + MediaQuery.of(context).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GField(
+                label: 'Current reading',
+                controller: controller,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                suffix: Text('km',
+                    style: AppType.labelM.c(context.c.inkMuted)),
+              ),
+              const SizedBox(height: Gap.xl),
+              GButton.accent(
+                label: 'Save',
+                onPressed: () => Navigator.of(context)
+                    .pop(int.tryParse(controller.text) ?? current),
+              ),
+            ],
+          ),
         ),
       ),
     );

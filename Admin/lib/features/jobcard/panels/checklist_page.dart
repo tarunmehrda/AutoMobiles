@@ -85,6 +85,9 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
     final exactMatch =
         widget.presets.any((e) => e.toLowerCase() == q) ||
         _picked.any((e) => e.toLowerCase() == q);
+    // With the keyboard up there is room for the search and a few rows
+    // under it, not for the blurb and every chip above it as well.
+    final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
       backgroundColor: p.canvas,
@@ -94,62 +97,77 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Gap.page,
-              Gap.sm,
-              Gap.page,
-              Gap.md,
+          if (!typing)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Gap.page,
+                Gap.sm,
+                Gap.page,
+                Gap.md,
+              ),
+              child: Text(
+                widget.subtitle,
+                style: AppType.bodyM.c(p.inkMuted),
+              ),
             ),
-            child: Text(widget.subtitle, style: AppType.bodyM.c(p.inkMuted)),
-          ),
 
           // --- what is already on the card -------------------------------
           if (_picked.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.md),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: Gap.sm,
-                  runSpacing: Gap.sm,
-                  children: [
-                    for (final value in _picked)
-                      Pressable(
-                        onTap: () => _toggle(value),
-                        scale: 0.94,
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(
-                            Gap.md,
-                            Gap.sm,
-                            Gap.sm,
-                            Gap.sm,
-                          ),
-                          decoration: BoxDecoration(
-                            color: p.ink,
-                            borderRadius: R.all(R.pill),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                value,
-                                style: AppType.labelM.c(
-                                  p.isDark ? p.canvas : Colors.white,
-                                ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: typing ? 88 : 200,
+                ),
+                child: SingleChildScrollView(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: Gap.sm,
+                      runSpacing: Gap.sm,
+                      children: [
+                        for (final value in _picked)
+                          Pressable(
+                            onTap: () => _toggle(value),
+                            scale: 0.94,
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(
+                                Gap.md,
+                                Gap.sm,
+                                Gap.sm,
+                                Gap.sm,
                               ),
-                              const SizedBox(width: 5),
-                              Icon(
-                                Icons.close_rounded,
-                                size: 14,
-                                color: (p.isDark ? p.canvas : Colors.white)
-                                    .withValues(alpha: 0.7),
+                              decoration: BoxDecoration(
+                                color: p.ink,
+                                borderRadius: R.all(R.pill),
                               ),
-                            ],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      value,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppType.labelM.c(
+                                        p.isDark ? p.canvas : Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Icon(
+                                    Icons.close_rounded,
+                                    size: 14,
+                                    color: (p.isDark ? p.canvas : Colors.white)
+                                        .withValues(alpha: 0.7),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -272,9 +290,13 @@ class _Chip extends StatelessWidget {
               color: selected ? p.accentInk : p.inkFaint,
             ),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: AppType.labelM.c(selected ? p.accentInk : p.inkSoft),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.labelM.c(selected ? p.accentInk : p.inkSoft),
+              ),
             ),
           ],
         ),

@@ -257,7 +257,12 @@ class GVehicleCard extends StatelessWidget {
               ],
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: Gap.sm), trailing!],
+          // At most half the row, so a wide trailing action cannot squeeze
+          // the plate and the model to nothing.
+          if (trailing != null) ...[
+            const SizedBox(width: Gap.sm),
+            Flexible(child: trailing!),
+          ],
         ],
       ),
     );

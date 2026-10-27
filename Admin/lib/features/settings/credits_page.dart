@@ -71,32 +71,38 @@ class _CreditsPageState extends State<CreditsPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Gap.page,
-              Gap.md,
-              Gap.page,
-              Gap.md,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'The vehicle photographs come from Wikimedia Commons and from Unsplash. Most are published under a Creative Commons licence that asks for the photographer to be named, which is what this page does. Tap a row to open the original.'
-                      .tr,
-                  style: AppType.bodyM.c(p.inkSoft),
+          // The blurb and the search give way to the list on a short
+          // screen with a large font, rather than pushing it off the end.
+          Flexible(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.page,
+                  Gap.md,
+                  Gap.page,
+                  Gap.md,
                 ),
-                const SizedBox(height: Gap.md),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _search,
-                  builder: (context, value, child) => child!,
-                  child: GSearchBar(
-                    hint: 'Search a vehicle or a photographer'.tr,
-                    controller: _search,
-                    onClear: _search.clear,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'The vehicle photographs come from Wikimedia Commons and from Unsplash. Most are published under a Creative Commons licence that asks for the photographer to be named, which is what this page does. Tap a row to open the original.'
+                          .tr,
+                      style: AppType.bodyM.c(p.inkSoft),
+                    ),
+                    const SizedBox(height: Gap.md),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _search,
+                      builder: (context, value, child) => child!,
+                      child: GSearchBar(
+                        hint: 'Search a vehicle or a photographer'.tr,
+                        controller: _search,
+                        onClear: _search.clear,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
           Expanded(

@@ -15,6 +15,7 @@ import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import '../../../state/admin_state.dart';
 import '../../shared/sms_text.dart';
+import '../documents/doc_text.dart';
 import 'ledger_tabs.dart';
 
 /// What comes back from the sheet, so the caller knows whether to switch the
@@ -44,6 +45,7 @@ Future<CompleteOutcome> showCompleteSheet(
     text: card.discount == 0 ? '' : card.discount.toStringAsFixed(0),
   );
   var percentMode = false;
+  var mode = PayMode.cash;
   var sms = ref.read(adminProvider).smsEnabled;
   var date = DateTime.now();
   var outcome = CompleteOutcome.cancelled;
@@ -74,7 +76,14 @@ Future<CompleteOutcome> showCompleteSheet(
           // works it out. Leaving it off made a taxed card whose advance
           // covered the pre-tax bill read as money owed back.
           final taxable = (gross - discountValue).clamp(0, double.infinity);
-          final tax = taxable * card.taxRate;
+          // Each line at its own GST, with the discount coming off every
+          // line in proportion — `JobCard.taxAmount`, worked on the discount
+          // being typed rather than the one already saved.
+          final share = gross <= 0 ? 0.0 : taxable / gross;
+          final tax = card.items.fold<double>(
+            0,
+            (t, e) => t + e.amount * share * e.gstOn(card.taxRate),
+          );
           final payable = taxable + tax;
           final alreadyPaid = card.paid;
           // What is still owed before anything taken now.
@@ -98,11 +107,7 @@ Future<CompleteOutcome> showCompleteSheet(
             // An ordinary payment: it stops at the balance, like every
             // other place money is taken against a card.
             if (nowValue > 0) {
-              ctrl.addPayment(
-                card.id,
-                amount: nowValue.toDouble(),
-                mode: PayMode.cash,
-              );
+              ctrl.addPayment(card.id, amount: nowValue.toDouble(), mode: mode);
             }
           }
 
@@ -181,7 +186,9 @@ Future<CompleteOutcome> showCompleteSheet(
                       // --- the bill as three lines ---------------------
                       _Line(label: 'Labour Total'.tr, value: labour),
                       _Line(label: 'Spare Total'.tr, value: spare),
-                      _Line(label: 'Lube Total'.tr, value: lube),
+                      // Lube only on an older card that still carries some.
+                      if (lube > 0)
+                        _Line(label: 'Lube Total'.tr, value: lube),
                       Divider(height: Gap.xl, color: p.line),
                       _Line(
                         label: 'TOTAL AMOUNT'.tr,
@@ -199,6 +206,11 @@ Future<CompleteOutcome> showCompleteSheet(
                           controller: received,
                           onChanged: () => setSheet(() {}),
                         ),
+                      ),
+                      const SizedBox(height: Gap.sm),
+                      PayModePicker(
+                        mode: mode,
+                        onChanged: (m) => setSheet(() => mode = m),
                       ),
                       if (nowValue > due) ...[
                         const SizedBox(height: Gap.xs),
@@ -261,13 +273,7 @@ Future<CompleteOutcome> showCompleteSheet(
                       ),
                       const SizedBox(height: Gap.lg),
 
-                      if (card.taxRate > 0)
-                        _Line(
-                          label: 'GST {0}%'.trf([
-                            (card.taxRate * 100).toStringAsFixed(0),
-                          ]),
-                          value: tax.toDouble(),
-                        ),
+                      if (tax > 0) _Line(label: taxLabel(card), value: tax),
                       _Line(
                         label: 'Payable Amount'.tr,
                         value: payable.toDouble(),
@@ -290,8 +296,8 @@ Future<CompleteOutcome> showCompleteSheet(
                         child: Pressable(
                           onTap: pickDate,
                           scale: 0.96,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
                             children: [
                               Text(
                                 'Select Date:  '.tr,

@@ -124,7 +124,10 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
                           ? _status.blurb
                           : 'Try the job card number, the customer name or the registration.'
                                 .tr,
-                      actionLabel: _query.isEmpty ? 'Create job card'.tr : null,
+                      actionLabel:
+                          _query.isEmpty && ref.watch(accessProvider).openJobs
+                          ? 'Create job card'.tr
+                          : null,
                       onAction: () => context.push('/job/new'),
                     )
                   // One clock for the whole list. Without it each row timed
@@ -142,7 +145,12 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
                         ),
                         itemCount: cards.length + 1,
                         itemBuilder: (context, i) {
-                          if (i == cards.length) return _Footer(cards: cards);
+                          if (i == cards.length) {
+                            return _Footer(
+                              cards: cards,
+                              money: ref.watch(accessProvider).seesCost,
+                            );
+                          }
                           return Entrance(
                             key: ValueKey(cards[i].id),
                             index: i.clamp(0, 8),
@@ -165,9 +173,12 @@ class _JobCardListPageState extends ConsumerState<JobCardListPage> {
 /// Totals for whatever is currently on screen — useful when the list is
 /// filtered down to one customer or one day.
 class _Footer extends StatelessWidget {
-  const _Footer({required this.cards});
+  const _Footer({required this.cards, this.money = true});
 
   final List<JobCard> cards;
+
+  /// False for somebody who may not see what the cards cost.
+  final bool money;
 
   @override
   Widget build(BuildContext context) {
@@ -182,18 +193,28 @@ class _Footer extends StatelessWidget {
             '{0} shown'.trf([cards.length]),
             style: AppType.labelS.c(p.inkFaint),
           ),
-          const Spacer(),
-          Text(
-            'Billed {0}'.trf([Fmt.money(billed)]),
-            style: AppType.labelS.c(p.inkMuted),
-          ),
-          if (due > 0) ...[
-            const SizedBox(width: Gap.md),
-            Text(
-              'Due {0}'.trf([Fmt.money(due)]),
-              style: AppType.labelS.c(p.danger),
+          const SizedBox(width: Gap.md),
+          // Wraps onto a second line rather than running off the edge when
+          // the totals get long.
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: Gap.md,
+              runSpacing: 2,
+              children: [
+                if (money)
+                  Text(
+                    'Billed {0}'.trf([Fmt.money(billed)]),
+                    style: AppType.labelS.c(p.inkMuted),
+                  ),
+                if (money && due > 0)
+                  Text(
+                    'Due {0}'.trf([Fmt.money(due)]),
+                    style: AppType.labelS.c(p.danger),
+                  ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );

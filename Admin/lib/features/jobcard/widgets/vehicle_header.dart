@@ -117,9 +117,13 @@ class VehicleHeader extends ConsumerWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        customer?.phone ?? '',
-                        style: AppType.labelM.c(p.accentInk),
+                      Flexible(
+                        child: Text(
+                          customer?.phone ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.labelM.c(p.accentInk),
+                        ),
                       ),
                       const SizedBox(width: 3),
                       Icon(
@@ -177,7 +181,7 @@ class VehicleHeader extends ConsumerWidget {
       context,
       title: customer.name,
       subtitle: customer.phone,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           children: [
@@ -220,6 +224,7 @@ class VehicleHeader extends ConsumerWidget {
     WidgetRef ref,
     List<JobCard> history,
   ) {
+    final cost = ref.read(accessProvider).seesCost;
     GFeedback.sheet<void>(
       context,
       title: 'Previous visits'.tr,
@@ -262,7 +267,8 @@ class VehicleHeader extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  Text(Fmt.money(h.total), style: AppType.money.c(p.ink)),
+                  if (cost)
+                    Text(Fmt.money(h.total), style: AppType.money.c(p.ink)),
                 ],
               ),
             ),

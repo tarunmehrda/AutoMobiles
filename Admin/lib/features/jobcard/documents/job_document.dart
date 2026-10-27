@@ -9,17 +9,20 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/utils/upi_intent.dart';
 import '../../../core/utils/words.dart';
 import '../../../core/widgets/local_image.dart';
+import '../../../data/models/books.dart';
 import '../../../data/models/entities.dart';
 import '../../../data/models/enums.dart';
 import 'doc_sections.dart';
+import 'doc_text.dart';
 import 'invoice_format.dart';
 
 /// The printable face of a job card.
 ///
 /// All three documents are the same sheet with different rules about what is
-/// on it: the estimate and the invoice carry money, the mechanic copy carries
-/// the complaint, the accessories and a column for the floor to write in —
-/// and deliberately no prices at all.
+/// on it: the estimate and the invoice carry money, the floor copies carry
+/// the complaint next to the list of work — and deliberately no prices at
+/// all. The floor copy comes two ways on one [DocKind]: the mechanic's, and
+/// the job card copy handed to the customer at check-in ([jobCardCopy]).
 ///
 /// On top of that, [format] picks one of the five templates and [sections]
 /// says which optional blocks ride along. This widget and [JobPdf] are read
@@ -36,6 +39,8 @@ class JobDocument extends StatelessWidget {
     required this.staff,
     this.format = InvoiceFormat.simpleA4,
     this.sections,
+    this.jobCardCopy = false,
+    this.banks = const [],
   });
 
   final DocKind kind;
@@ -51,6 +56,15 @@ class JobDocument extends StatelessWidget {
   /// The optional blocks, or null for whatever the template starts with.
   final Set<DocSection>? sections;
 
+  /// The customer's copy of the floor document rather than the mechanic's.
+  /// Only means anything on [DocKind.mechanicCopy].
+  final bool jobCardCopy;
+
+  /// The workshop's bank accounts, primary first. The ones marked to print
+  /// go at the foot of a bill, and one marked for a UPI QR is what the
+  /// scan-to-pay code pays into.
+  final List<BankAccount> banks;
+
   String _staffNames(Iterable<String> ids) {
     final names = <String>[];
     for (final id in ids) {
@@ -64,11 +78,14 @@ class JobDocument extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.c;
+    final copy = jobCardCopy && kind == DocKind.mechanicCopy;
     final on = DocSectionX.carryOver(
-      sections ?? DocSectionX.defaultsFor(format, kind),
+      sections ?? DocSectionX.defaultsFor(format, kind, jobCardCopy: copy),
       format,
       kind,
     );
+    final floor = kind == DocKind.mechanicCopy;
+    final v = vehicle;
 
     if (format.isThermal) {
       return _RollDocument(
@@ -80,6 +97,8 @@ class JobDocument extends StatelessWidget {
         mechanics: _staffNames(card.mechanicIds),
         format: format,
         on: on,
+        jobCardCopy: copy,
+        banks: banks,
       );
     }
 
@@ -94,17 +113,42 @@ class JobDocument extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Letterhead(kind: kind, card: card, garage: garage, format: format),
-          _Parties(
+          _Letterhead(
             kind: kind,
             card: card,
-            customer: customer,
-            vehicle: vehicle,
-            mechanics: _staffNames(card.mechanicIds),
-            on: on,
+            garage: garage,
+            format: format,
+            jobCardCopy: copy,
           ),
-          _VoiceAndAccessories(card: card, on: on),
-          _Particulars(kind: kind, card: card, staff: staff),
+          if (floor) ...[
+            _VehicleDetails(
+              card: card,
+              customer: copy ? customer : null,
+              vehicle: vehicle,
+              mechanics: _staffNames(card.mechanicIds),
+              on: on,
+              promised: copy,
+            ),
+            _VoiceAndWork(card: card, on: on),
+            // The voice already sits beside the work; what is left of the
+            // pair is the accessories, when they are ticked on.
+            _VoiceAndAccessories(
+              card: card,
+              on: on.difference(const {DocSection.voices}),
+            ),
+          ] else ...[
+            _Parties(
+              kind: kind,
+              card: card,
+              customer: customer,
+              vehicle: vehicle,
+              mechanics: _staffNames(card.mechanicIds),
+              on: on,
+            ),
+            if (v != null && v.insured) _Insurance(vehicle: v),
+            _VoiceAndAccessories(card: card, on: on),
+            _Particulars(card: card),
+          ],
           if (kind.showsPricing)
             _Totals(
               kind: kind,
@@ -117,8 +161,16 @@ class JobDocument extends StatelessWidget {
           _Handover(card: card, on: on),
           if (on.contains(DocSection.photos) && card.photos.isNotEmpty)
             _PhotoWall(card: card),
-          _LedgerBlocks(card: card, garage: garage, kind: kind, on: on),
-          _DocFooter(kind: kind, card: card, garage: garage),
+          _LedgerBlocks(
+            card: card,
+            garage: garage,
+            kind: kind,
+            on: on,
+            banks: banks,
+          ),
+          if (kind.showsPricing && invoiceBanks(banks).isNotEmpty)
+            _BankDetails(banks: invoiceBanks(banks)),
+          _DocFooter(kind: kind, card: card, garage: garage, jobCardCopy: copy),
         ],
       ),
     );
@@ -133,21 +185,14 @@ class _Letterhead extends StatelessWidget {
     required this.card,
     required this.garage,
     required this.format,
+    this.jobCardCopy = false,
   });
 
   final DocKind kind;
   final JobCard card;
   final Garage garage;
   final InvoiceFormat format;
-
-  /// The tax template says TAX INVOICE on it because that is the wording the
-  /// rule asks for; the detailed one is a job card whatever tab it was
-  /// opened from. The rest are named after the document.
-  String get _title => switch (format) {
-    InvoiceFormat.taxA4 => 'Tax Invoice',
-    InvoiceFormat.detailedA4 => 'Job Card',
-    _ => kind.label,
-  };
+  final bool jobCardCopy;
 
   @override
   Widget build(BuildContext context) {
@@ -204,15 +249,21 @@ class _Letterhead extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                _title,
+                docTitle(kind, format, jobCardCopy: jobCardCopy),
                 textAlign: TextAlign.end,
                 style: AppType.h2.c(p.ink),
               ),
               const SizedBox(height: 4),
-              _MetaRow(label: 'Number'.tr, value: card.number),
+              // The floor reads a job by its number, so the copies that go
+              // there say "Job" where the bills say "Number".
+              _MetaRow(
+                label: kind == DocKind.mechanicCopy ? 'Job'.tr : 'Number'.tr,
+                value: card.number,
+              ),
               _MetaRow(label: 'Date'.tr, value: Fmt.date(card.createdAt)),
-              _MetaRow(label: 'Time'.tr, value: Fmt.time(card.createdAt)),
-              if (card.completedAt != null)
+              if (kind != DocKind.mechanicCopy)
+                _MetaRow(label: 'Time'.tr, value: Fmt.time(card.createdAt)),
+              if (kind != DocKind.mechanicCopy && card.completedAt != null)
                 _MetaRow(
                   label: 'Completed'.tr,
                   value: Fmt.date(card.completedAt!),
@@ -274,7 +325,6 @@ class _Parties extends StatelessWidget {
     // Locals so the null checks below promote: public fields do not.
     final gstin = (customer?.gstin ?? '').trim();
     final v = vehicle;
-    final insurance = v == null ? '' : _insurance(v);
 
     return Column(
       children: [
@@ -300,6 +350,11 @@ class _Parties extends StatelessWidget {
                         customer?.phone ?? '',
                         style: AppType.bodyS.c(p.inkMuted),
                       ),
+                      if ((customer?.email ?? '').trim().isNotEmpty)
+                        Text(
+                          customer!.email.trim(),
+                          style: AppType.bodyS.s(11).c(p.inkMuted),
+                        ),
                       if ((customer?.address ?? '').isNotEmpty)
                         Text(
                           customer!.address,
@@ -326,18 +381,11 @@ class _Parties extends StatelessWidget {
                       'Veh. No: ${Fmt.plate(vehicle?.regNo ?? '—')}',
                       style: AppType.labelM.c(p.ink),
                     ),
-                    Text(
-                      vehicle?.title ?? '',
-                      style: AppType.bodyS.c(p.inkSoft),
-                    ),
+                    if (v != null)
+                      Text(vehicleMake(v), style: AppType.bodyS.c(p.inkSoft)),
                     if (v != null)
                       Text(
                         _fuelAndGearbox(v),
-                        style: AppType.bodyS.s(11).c(p.inkMuted),
-                      ),
-                    if (insurance.isNotEmpty)
-                      Text(
-                        insurance,
                         style: AppType.bodyS.s(11).c(p.inkMuted),
                       ),
                     const SizedBox(height: 2),
@@ -355,7 +403,9 @@ class _Parties extends StatelessWidget {
                         'Assigned: {0}'.trf([mechanics]),
                         style: AppType.bodyS.s(11).c(p.inkMuted),
                       ),
-                    if (card.promisedAt != null)
+                    // A promise of delivery belongs on the quote; on the
+                    // invoice the vehicle has already gone out.
+                    if (kind == DocKind.estimate && card.promisedAt != null)
                       Text(
                         'Ready by: {0}'.trf([
                           Fmt.fullDateTime(card.promisedAt!),
@@ -385,22 +435,6 @@ String _fuelAndGearbox(Vehicle vehicle) => [
   vehicle.fuel.label,
   if (vehicle.transmission != null) vehicle.transmission!.label,
 ].join(' · ');
-
-/// `Insurance: ICICI Lombard · Policy 3001/1234`, or empty when neither was
-/// taken down.
-///
-/// An insurance claim job is filed against these two and the surveyor reads
-/// them off the job card, so they are on the document as soon as the counter
-/// has them. Either half prints on its own — a policy number with no insurer
-/// is still what a claim is looked up by. Mirrors `JobPdf._insurance`.
-String _insurance(Vehicle vehicle) {
-  final parts = [
-    vehicle.insurer.trim(),
-    if (vehicle.policyNo.trim().isNotEmpty)
-      'Policy {0}'.trf([vehicle.policyNo.trim()]),
-  ].where((e) => e.isNotEmpty);
-  return parts.isEmpty ? '' : 'Insurance: {0}'.trf([parts.join(' · ')]);
-}
 
 /// Thin tinted band used as a table/section head throughout the document.
 class _BandHeader extends StatelessWidget {
@@ -433,6 +467,231 @@ class _BandHeader extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// The vehicle as the floor needs it: which one, what it is, what it burns
+/// and how full, how far it has run.
+///
+/// The floor copies have no "bill to" — nobody on the floor bills anyone —
+/// so the block is the vehicle alone. The job card copy, which goes to the
+/// customer, also names them and says when the vehicle was promised back.
+class _VehicleDetails extends StatelessWidget {
+  const _VehicleDetails({
+    required this.card,
+    required this.customer,
+    required this.vehicle,
+    required this.mechanics,
+    required this.on,
+    required this.promised,
+  });
+
+  final JobCard card;
+  final Customer? customer;
+  final Vehicle? vehicle;
+  final String mechanics;
+  final Set<DocSection> on;
+  final bool promised;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    final v = vehicle;
+    final c = customer;
+    final odo = on.contains(DocSection.odometer);
+    final rows = <(String, String)>[
+      ('Reg No'.tr, Fmt.plate(v?.regNo ?? '—')),
+      if (v != null && vehicleMake(v).isNotEmpty) ('Make'.tr, vehicleMake(v)),
+      if (v != null)
+        (
+          'Fuel'.tr,
+          odo
+              ? '${_fuelAndGearbox(v)}  •  ${card.fuelPercent}%'
+              : _fuelAndGearbox(v),
+        ),
+      if (odo) ('KM'.tr, Fmt.km(card.odometerKm)),
+      if (c != null)
+        (
+          'Customer'.tr,
+          [c.name, c.phone].where((e) => e.trim().isNotEmpty).join('  •  '),
+        ),
+      if (on.contains(DocSection.mechanics) && mechanics.isNotEmpty)
+        ('Assigned'.tr, mechanics),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _BandHeader(left: 'Vehicle details'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (label, value) in rows)
+                _KeyLine(label: label, value: value),
+              if (promised && card.promisedAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    'Promised delivery: {0}'.trf([
+                      Fmt.fullDateTime(card.promisedAt!),
+                    ]),
+                    style: AppType.labelS.s(10.5).c(p.warning),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// `Label   value` with the label in a fixed gutter, so a column of them
+/// lines up the way a printed form does.
+class _KeyLine extends StatelessWidget {
+  const _KeyLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(label, style: AppType.labelS.s(10.5).c(p.inkFaint)),
+          ),
+          Expanded(child: Text(value, style: AppType.bodyS.s(12).c(p.inkSoft))),
+        ],
+      ),
+    );
+  }
+}
+
+/// The policy a claim invoice is billed against.
+///
+/// Its own block rather than a line under the vehicle: the surveyor reads
+/// the policy dates and the insurer's GSTIN off it, and a single wrapped line
+/// of six facts is not something anybody can read off.
+class _Insurance extends StatelessWidget {
+  const _Insurance({required this.vehicle});
+
+  final Vehicle vehicle;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = insuranceRows(vehicle);
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _BandHeader(left: 'Insurance'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (label, value) in rows)
+                _KeyLine(label: label, value: value),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The floor copy's middle: what the customer said on the left, what is to
+/// be done about it on the right.
+///
+/// Read side by side because that is how the mechanic uses it — "engine
+/// noise" across from "engine mounting × 1". Names and quantities only: the
+/// floor copy carries no prices, by design.
+class _VoiceAndWork extends StatelessWidget {
+  const _VoiceAndWork({required this.card, required this.on});
+
+  final JobCard card;
+  final Set<DocSection> on;
+
+  @override
+  Widget build(BuildContext context) {
+    final voices = on.contains(DocSection.voices);
+    final work = [for (final e in card.items) floorLine(e)];
+    return Column(
+      children: [
+        _BandHeader(
+          left: voices ? 'Customer voice' : 'Spare parts / jobs',
+          right: voices ? 'Spare parts / jobs' : null,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (voices) ...[
+                Expanded(
+                  child: _NumberedList(
+                    items: card.voices,
+                    empty: 'Nothing noted',
+                    bullets: true,
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+              ],
+              Expanded(
+                child: _NumberedList(
+                  items: work,
+                  empty: 'No work listed yet',
+                  bullets: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Where to send the money by bank transfer, for every account the shop has
+/// marked to print. Primary first, the order the books keep them in.
+class _BankDetails extends StatelessWidget {
+  const _BankDetails({required this.banks});
+
+  final List<BankAccount> banks;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.c;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _BandHeader(left: 'Bank details'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final b in banks)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    'Bank Details: {0}'.trf([bankLine(b)]),
+                    style: AppType.bodyS.s(11.5).c(p.inkSoft),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -617,16 +876,19 @@ class _LedgerBlocks extends StatelessWidget {
     required this.garage,
     required this.kind,
     required this.on,
+    this.banks = const [],
   });
 
   final JobCard card;
   final Garage garage;
   final DocKind kind;
   final Set<DocSection> on;
+  final List<BankAccount> banks;
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
+    final target = payTarget(garage, banks);
     final payments = on.contains(DocSection.payments)
         ? card.payments
         : const <Payment>[];
@@ -634,7 +896,7 @@ class _LedgerBlocks extends StatelessWidget {
     final pay =
         on.contains(DocSection.paymentQr) &&
         kind.showsPricing &&
-        garage.upiId.trim().isNotEmpty;
+        target.upiId.isNotEmpty;
 
     if (payments.isEmpty && sms.isEmpty && !pay) return const SizedBox.shrink();
 
@@ -693,8 +955,8 @@ class _LedgerBlocks extends StatelessWidget {
                     ),
                     child: QrImageView(
                       data: upiIntent(
-                        upiId: garage.upiId,
-                        payee: garage.name,
+                        upiId: target.upiId,
+                        payee: target.payee,
                         amount: card.balance,
                         note: 'Job card {0}'.trf([card.number]),
                       ),
@@ -726,7 +988,7 @@ class _LedgerBlocks extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        garage.upiId,
+                        target.upiId,
                         style: AppType.bodyS.s(11).c(p.inkMuted),
                       ),
                     ],
@@ -784,10 +1046,18 @@ class _FactRow extends StatelessWidget {
 }
 
 class _NumberedList extends StatelessWidget {
-  const _NumberedList({required this.items, required this.empty});
+  const _NumberedList({
+    required this.items,
+    required this.empty,
+    this.bullets = false,
+  });
 
   final List<String> items;
   final String empty;
+
+  /// A bullet rather than a number — for the floor copy's two columns, where
+  /// the numbers on one side would read as matching the other.
+  final bool bullets;
 
   @override
   Widget build(BuildContext context) {
@@ -807,7 +1077,7 @@ class _NumberedList extends StatelessWidget {
                 SizedBox(
                   width: 16,
                   child: Text(
-                    '${i + 1}',
+                    bullets ? '•' : '${i + 1}',
                     style: AppType.labelS.s(10.5).c(p.inkFaint),
                   ),
                 ),
@@ -827,32 +1097,34 @@ class _NumberedList extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 
-/// The line table. Money columns on the customer documents; status, mechanic
-/// and a remark column on the copy that goes to the floor.
+/// The line table on the bills: `# | Particulars | GST | Qty | Rate | Amount`.
+///
+/// The GST column is per line because lines are taxed per line now — a
+/// battery at 28% and the labour at 18% on one card. The floor copies do not
+/// use this table at all: they list the work beside the complaint, unpriced.
 class _Particulars extends StatelessWidget {
-  const _Particulars({
-    required this.kind,
-    required this.card,
-    required this.staff,
-  });
+  const _Particulars({required this.card});
 
-  final DocKind kind;
   final JobCard card;
-  final List<Staff> staff;
-
-  String _mechanic(String? id) {
-    if (id == null) return '';
-    for (final s in staff) {
-      if (s.id == id) return s.name.split(' ').first;
-    }
-    return '';
-  }
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
-    final priced = kind.showsPricing;
     final rows = card.items;
+    final head = AppType.over.s(10).c(p.accentInk);
+    final cell = AppType.moneyS.s(11).c(p.inkSoft);
+
+    // Flex rather than fixed widths so the six columns share a 360dp phone
+    // without any of them running past the edge; a long figure wraps.
+    Widget col(int flex, String text, TextStyle style, {bool end = true}) =>
+        Expanded(
+          flex: flex,
+          child: Text(
+            text,
+            textAlign: end ? TextAlign.right : TextAlign.left,
+            style: style,
+          ),
+        );
 
     return Column(
       children: [
@@ -864,64 +1136,12 @@ class _Particulars extends StatelessWidget {
           ),
           child: Row(
             children: [
-              SizedBox(
-                width: 18,
-                child: Text('#', style: AppType.over.s(10).c(p.accentInk)),
-              ),
-              Expanded(
-                flex: 4,
-                child: Text(
-                  'PARTICULARS',
-                  style: AppType.over.s(10).c(p.accentInk),
-                ),
-              ),
-              if (priced) ...[
-                Expanded(
-                  child: Text(
-                    'QTY',
-                    textAlign: TextAlign.right,
-                    style: AppType.over.s(10).c(p.accentInk),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'RATE',
-                    textAlign: TextAlign.right,
-                    style: AppType.over.s(10).c(p.accentInk),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'AMOUNT',
-                    textAlign: TextAlign.right,
-                    style: AppType.over.s(10).c(p.accentInk),
-                  ),
-                ),
-              ] else ...[
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'STATUS',
-                    style: AppType.over.s(10).c(p.accentInk),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'MECHANIC',
-                    style: AppType.over.s(10).c(p.accentInk),
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    'REMARK',
-                    style: AppType.over.s(10).c(p.accentInk),
-                  ),
-                ),
-              ],
+              SizedBox(width: 18, child: Text('#', style: head)),
+              col(8, 'PARTICULARS', head, end: false),
+              col(3, 'GST', head),
+              col(3, 'QTY', head),
+              col(5, 'RATE', head),
+              col(5, 'AMOUNT', head),
             ],
           ),
         ),
@@ -929,9 +1149,7 @@ class _Particulars extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.xl),
             child: Text(
-              priced
-                  ? 'Nothing billed on this card yet'.tr
-                  : 'No work listed yet'.tr,
+              'Nothing billed on this card yet'.tr,
               style: AppType.bodyS.c(p.inkFaint),
             ),
           )
@@ -962,7 +1180,7 @@ class _Particulars extends StatelessWidget {
                     ),
                   ),
                   Expanded(
-                    flex: 4,
+                    flex: 8,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -978,53 +1196,10 @@ class _Particulars extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (priced) ...[
-                    Expanded(
-                      child: Text(
-                        rows[i].qtyLabel,
-                        textAlign: TextAlign.right,
-                        style: AppType.moneyS.s(11.5).c(p.inkSoft),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        Fmt.money2(rows[i].rate),
-                        textAlign: TextAlign.right,
-                        style: AppType.moneyS.s(11.5).c(p.inkSoft),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        Fmt.money2(rows[i].amount),
-                        textAlign: TextAlign.right,
-                        style: AppType.moneyS.s(12).c(p.ink),
-                      ),
-                    ),
-                  ] else ...[
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        rows[i].state.label,
-                        style: AppType.labelS.s(10.5).c(p.inkMuted),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        _mechanic(rows[i].mechanicId),
-                        style: AppType.labelS.s(10.5).c(p.inkMuted),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        rows[i].remark.isEmpty ? '—' : rows[i].remark,
-                        style: AppType.bodyS.s(11).c(p.inkFaint),
-                      ),
-                    ),
-                  ],
+                  col(3, lineGst(rows[i], card), cell),
+                  col(3, qtyWithUnit(rows[i]), cell),
+                  col(5, Fmt.money2(rows[i].rate), cell),
+                  col(5, Fmt.money2(rows[i].amount), cell.c(p.ink)),
                 ],
               ),
             ),
@@ -1062,26 +1237,37 @@ class _Totals extends StatelessWidget {
               value: '- ${Fmt.money2(card.discount)}',
               color: p.success,
             ),
-          if (taxed && card.taxRate > 0) ...[
+          // The tax is the sum of each line at its own rate (see
+          // `JobCard.taxAmount`), so a card with no rate of its own can still
+          // carry tax from a line that has one.
+          if (taxed && card.taxAmount > 0) ...[
             _Line(label: 'Taxable value'.tr, value: Fmt.money2(card.taxable)),
             _Line(label: 'CGST', value: Fmt.money2(half)),
             _Line(label: 'SGST', value: Fmt.money2(half)),
-          ] else if (card.taxRate > 0)
-            _Line(
-              label: 'GST {0}%'.trf([(card.taxRate * 100).toStringAsFixed(0)]),
-              value: Fmt.money2(card.taxAmount),
-            ),
+          ] else if (card.taxAmount > 0)
+            _Line(label: taxLabel(card), value: Fmt.money2(card.taxAmount)),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.sm),
             child: Divider(height: 1, color: p.line),
           ),
           _Line(
-            label: invoice ? 'Payable'.tr : 'Estimated total'.tr,
+            label: invoice ? 'Total'.tr : 'Estimated total'.tr,
             value: Fmt.money2(card.total),
             emphasize: true,
           ),
+          // The advance taken at check-in is shown apart from what was paid
+          // at delivery, so the customer can see both the money they left
+          // and what was left to pay after it.
           if (invoice) ...[
-            _Line(label: 'Paid'.tr, value: Fmt.money2(card.paid)),
+            _Line(label: 'Advance'.tr, value: Fmt.money2(card.advancePaid)),
+            _Line(
+              label: 'Payable'.tr,
+              value: Fmt.money2(payableAfterAdvance(card)),
+            ),
+            _Line(
+              label: 'Paid'.tr,
+              value: Fmt.money2(paidExcludingAdvance(card)),
+            ),
             _Line(
               label: 'Balance'.tr,
               value: Fmt.money2(card.balance),
@@ -1217,15 +1403,20 @@ class _DocFooter extends StatelessWidget {
     required this.kind,
     required this.card,
     required this.garage,
+    this.jobCardCopy = false,
   });
 
   final DocKind kind;
   final JobCard card;
   final Garage garage;
+  final bool jobCardCopy;
 
   @override
   Widget build(BuildContext context) {
     final p = context.c;
+    // Only the mechanic's own copy is signed by the mechanic; the job card
+    // copy is the customer's, and they sign it for the vehicle they left.
+    final mechanic = kind == DocKind.mechanicCopy && !jobCardCopy;
     final terms = garage.terms
         .split('\n')
         .map((e) => e.trim())
@@ -1246,7 +1437,7 @@ class _DocFooter extends StatelessWidget {
             ),
           ),
         ],
-        if (kind != DocKind.mechanicCopy && terms.isNotEmpty)
+        if (!mechanic && terms.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, 0),
             child: Column(
@@ -1265,7 +1456,7 @@ class _DocFooter extends StatelessWidget {
             children: [
               Expanded(
                 child: _SignSlot(
-                  label: kind == DocKind.mechanicCopy
+                  label: mechanic
                       ? 'Mechanic signature'.tr
                       : 'Customer signature'.tr,
                 ),
@@ -1321,6 +1512,8 @@ class _RollDocument extends StatelessWidget {
     required this.mechanics,
     required this.format,
     required this.on,
+    this.jobCardCopy = false,
+    this.banks = const [],
   });
 
   final DocKind kind;
@@ -1331,6 +1524,8 @@ class _RollDocument extends StatelessWidget {
   final String mechanics;
   final InvoiceFormat format;
   final Set<DocSection> on;
+  final bool jobCardCopy;
+  final List<BankAccount> banks;
 
   @override
   Widget build(BuildContext context) {
@@ -1338,6 +1533,13 @@ class _RollDocument extends StatelessWidget {
     final tight = format == InvoiceFormat.thermal58;
     final priced = kind.showsPricing;
     final size = tight ? 10.0 : 11.0;
+    final target = payTarget(garage, banks);
+    final printBanks = priced ? invoiceBanks(banks) : const <BankAccount>[];
+    final v = vehicle;
+    // Same rule as the A4 sheet: the quote and the customer's job card copy
+    // say when the vehicle is promised back; the invoice and the mechanic's
+    // copy do not.
+    final promise = kind == DocKind.estimate || jobCardCopy;
 
     Widget mid(String t, {double? s, bool bold = false}) => Text(
       t,
@@ -1417,7 +1619,10 @@ class _RollDocument extends StatelessWidget {
             mid('Ph: ${garage.phone}'),
             if (garage.gstin.isNotEmpty) mid('GSTIN: ${garage.gstin}'),
             rule(),
-            mid(kind.label.toUpperCase(), bold: true),
+            mid(
+              docTitle(kind, format, jobCardCopy: jobCardCopy).toUpperCase(),
+              bold: true,
+            ),
             rule(),
             pair('No.', card.number),
             pair('Date', Fmt.date(card.createdAt)),
@@ -1430,10 +1635,13 @@ class _RollDocument extends StatelessWidget {
             // Block for block with JobPdf._roll: fuel and gearbox under the
             // plate with no label of their own, insurance on a line that can
             // wrap, because 58mm is narrower than an insurer and a policy.
-            if (vehicle != null) ...[
-              pair('Vehicle', Fmt.plate(vehicle!.regNo)),
-              pair('', _fuelAndGearbox(vehicle!)),
-              if (_insurance(vehicle!).isNotEmpty) lead(_insurance(vehicle!)),
+            if (v != null) ...[
+              pair('Vehicle', Fmt.plate(v.regNo)),
+              if (vehicleMake(v).isNotEmpty) lead(vehicleMake(v)),
+              pair('', _fuelAndGearbox(v)),
+              if (priced)
+                for (final (label, value) in insuranceRows(v))
+                  lead('$label: $value'),
             ],
             if (on.contains(DocSection.odometer)) ...[
               pair('Km', Fmt.km(card.odometerKm)),
@@ -1441,7 +1649,7 @@ class _RollDocument extends StatelessWidget {
             ],
             if (on.contains(DocSection.mechanics) && mechanics.isNotEmpty)
               pair('Attended by', mechanics),
-            if (card.promisedAt != null)
+            if (promise && card.promisedAt != null)
               pair('Ready by', Fmt.dateTime(card.promisedAt!)),
             rule(),
             if (on.contains(DocSection.voices) && card.voices.isNotEmpty) ...[
@@ -1476,11 +1684,11 @@ class _RollDocument extends StatelessWidget {
                 lead(item.name, bold: true),
                 if (priced)
                   pair(
-                    '  ${item.qtyLabel} × ${Fmt.money2(item.rate)}',
+                    '  ${qtyWithUnit(item)} × ${Fmt.money2(item.rate)} · GST ${lineGst(item, card)}',
                     Fmt.money2(item.amount),
                   )
                 else
-                  lead('  ${item.state.label}'),
+                  lead('  × ${qtyWithUnit(item)}'),
               ],
             if (priced) ...[
               rule(),
@@ -1493,8 +1701,12 @@ class _RollDocument extends StatelessWidget {
               ],
               rule(),
               pair('TOTAL', Fmt.money2(card.total), bold: true),
-              pair('Paid', Fmt.money2(card.paid)),
-              pair('Balance', Fmt.money2(card.balance), bold: true),
+              if (kind == DocKind.invoice) ...[
+                pair('Advance', Fmt.money2(card.advancePaid)),
+                pair('Payable', Fmt.money2(payableAfterAdvance(card))),
+                pair('Paid', Fmt.money2(paidExcludingAdvance(card))),
+                pair('Balance', Fmt.money2(card.balance), bold: true),
+              ],
               rule(),
               mid(Words.rupees(card.total)),
             ],
@@ -1518,7 +1730,7 @@ class _RollDocument extends StatelessWidget {
             if (on.contains(DocSection.paymentQr) &&
                 priced &&
                 card.balance > 0 &&
-                garage.upiId.trim().isNotEmpty) ...[
+                target.upiId.isNotEmpty) ...[
               rule(),
               mid('SCAN TO PAY ${Fmt.money2(card.balance)}', bold: true),
               const SizedBox(height: Gap.sm),
@@ -1528,8 +1740,8 @@ class _RollDocument extends StatelessWidget {
                   color: Colors.white,
                   child: QrImageView(
                     data: upiIntent(
-                      upiId: garage.upiId,
-                      payee: garage.name,
+                      upiId: target.upiId,
+                      payee: target.payee,
                       amount: card.balance,
                       note: 'Job card {0}'.trf([card.number]),
                     ),
@@ -1548,7 +1760,12 @@ class _RollDocument extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 3),
-              mid(garage.upiId),
+              mid(target.upiId),
+            ],
+            if (printBanks.isNotEmpty) ...[
+              rule(),
+              lead('BANK DETAILS', bold: true),
+              for (final b in printBanks) lead(bankLine(b)),
             ],
             if (card.nextServiceAt != null) ...[
               rule(),

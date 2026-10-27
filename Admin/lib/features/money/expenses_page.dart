@@ -17,18 +17,27 @@ import '../../core/widgets/g_art.dart';
 import '../../core/widgets/g_state.dart';
 import '../../core/widgets/pressable.dart';
 import '../../data/models/entities.dart';
+import '../../data/models/enums.dart';
+import '../trade/trade_widgets.dart' show DateField;
 import '../../state/admin_state.dart';
 import '../../state/providers.dart';
 
+/// The client's own list, in their order. Older records keep whatever
+/// category they were saved under ("General", "Fuel"…) and still show it —
+/// the category is stored as text, so nothing is lost by changing this.
 const _categories = [
-  'General',
   'Rent',
   'Electricity',
   'Salary',
-  'Spare purchase',
-  'Tools',
-  'Fuel',
+  'Food',
+  'Tools/Machinery',
   'Marketing',
+  'Maintenance',
+  'Tea',
+  'Travels/Rides (Ola/Uber/Transport)',
+  'Bills',
+  'Manufacturing Expense',
+  'Others',
 ];
 
 /// Everything the workshop spends that is not a job card — with the part of
@@ -198,7 +207,7 @@ class _ExpenseRow extends ConsumerWidget {
                     Text(
                       [
                         Fmt.date(expense.at),
-                        expense.category,
+                        expense.category.tr,
                         if (expense.supplier.isNotEmpty) expense.supplier,
                       ].join('  ·  '),
                       maxLines: 1,
@@ -217,12 +226,26 @@ class _ExpenseRow extends ConsumerWidget {
                     style: AppType.money.c(p.ink),
                   ),
                   const SizedBox(height: 3),
-                  GPill(
-                    label: expense.settled
-                        ? 'Paid'.tr
-                        : 'Due {0}'.trf([Fmt.money(expense.pending)]),
-                    tone: expense.settled ? GTone.success : GTone.danger,
-                    compact: true,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GPill(
+                        label: expense.mode == PayMode.cash
+                            ? 'Cash'.tr
+                            : 'Online'.tr,
+                        icon: expense.mode.icon,
+                        tone: GTone.neutral,
+                        compact: true,
+                      ),
+                      const SizedBox(width: Gap.xs),
+                      GPill(
+                        label: expense.settled
+                            ? 'Paid'.tr
+                            : 'Due {0}'.trf([Fmt.money(expense.pending)]),
+                        tone: expense.settled ? GTone.success : GTone.danger,
+                        compact: true,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -318,10 +341,13 @@ Future<void> _showSettleSheet(BuildContext context, Expense expense) async {
             final ctrl = ref.read(adminProvider.notifier);
             ctrl.updateExpense(current.copyWith(paid: next));
             ctrl.addCash(
-              party: current.supplier.isEmpty ? current.title : current.supplier,
+              party: current.supplier.isEmpty
+                  ? current.title
+                  : current.supplier,
               amount: raised,
               inward: false,
               reason: current.category,
+              mode: current.mode,
             );
           }
           Navigator.of(context).pop(raised > 0);
@@ -423,8 +449,9 @@ Future<void> _showSettleSheet(BuildContext context, Expense expense) async {
   }
 }
 
-/// The add-expense sheet. Amount and what it was for are the only things the
-/// counter must type; how much was actually handed over defaults to all of it.
+/// The add-expense sheet. The amount is the only thing the counter must
+/// type: the category stands in for a title, the date is today, and what
+/// was handed over defaults to all of it.
 Future<void> showExpenseSheet(BuildContext context) =>
     showModalBottomSheet<void>(
       context: context,
@@ -446,6 +473,8 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
   final _paid = TextEditingController();
   final _supplier = TextEditingController();
   String _category = _categories.first;
+  bool _online = false;
+  DateTime _at = DateTime.now();
 
   @override
   void dispose() {
@@ -457,7 +486,7 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
 
   double get _amountValue => double.tryParse(_amount.text.trim()) ?? 0;
 
-  bool get _valid => _title.text.trim().isNotEmpty && _amountValue > 0;
+  bool get _valid => _amountValue > 0;
 
   void _save() {
     if (!_valid) return;
@@ -467,11 +496,15 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
     ref
         .read(adminProvider.notifier)
         .addExpense(
-          title: _title.text,
+          // Nothing typed: the category is what it was for.
+          title: _title.text.trim().isEmpty ? _category : _title.text,
           amount: _amountValue,
           category: _category,
           supplier: _supplier.text,
           paid: paid,
+          at: _at,
+          // Online money leaves the bank, not the drawer.
+          mode: _online ? PayMode.upi : PayMode.cash,
         );
     Navigator.of(context).pop();
     GFeedback.success(context, 'Expense added'.tr);
@@ -517,22 +550,17 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
                 const SizedBox(height: Gap.lg),
                 Text('Add Expense'.tr, style: AppType.h1.c(p.ink)),
                 const SizedBox(height: Gap.lg),
-                GField(
-                  label: 'What was it for'.tr,
-                  hint: 'Shop rent, workshop electricity…'.tr,
-                  controller: _title,
-                  textCapitalization: TextCapitalization.sentences,
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: Gap.lg),
                 Row(
                   children: [
                     Expanded(
                       child: GField(
-                        label: 'Amount'.tr,
+                        label: 'Amount *'.tr,
                         hint: '1500',
                         controller: _amount,
-                        keyboardType: TextInputType.number,
+                        autofocus: true,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                         ],
@@ -545,7 +573,9 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
                         label: 'Paid now'.tr,
                         hint: 'All of it'.tr,
                         controller: _paid,
-                        keyboardType: TextInputType.number,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                         ],
@@ -554,11 +584,19 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
                   ],
                 ),
                 const SizedBox(height: Gap.lg),
-                GField(
-                  label: 'Supplier'.tr,
-                  hint: 'Optional'.tr,
-                  controller: _supplier,
-                  textCapitalization: TextCapitalization.words,
+                GSegmented<bool>(
+                  options: const [false, true],
+                  selected: _online,
+                  onSelect: (v) => setState(() => _online = v),
+                  labelOf: (v) => v ? 'Online'.tr : 'Cash'.tr,
+                  iconOf: (v) =>
+                      v ? Icons.qr_code_2_rounded : Icons.payments_rounded,
+                ),
+                const SizedBox(height: Gap.lg),
+                DateField(
+                  label: 'Date'.tr,
+                  value: _at,
+                  onChanged: (d) => setState(() => _at = d),
                 ),
                 const SizedBox(height: Gap.lg),
                 Text('CATEGORY', style: AppType.over.c(p.inkFaint)),
@@ -585,7 +623,7 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
                             ),
                           ),
                           child: Text(
-                            c,
+                            c.tr,
                             style: AppType.labelM.c(
                               _category == c
                                   ? (p.isDark ? p.canvas : Colors.white)
@@ -595,6 +633,20 @@ class _ExpenseSheetState extends ConsumerState<_ExpenseSheet> {
                         ),
                       ),
                   ],
+                ),
+                const SizedBox(height: Gap.lg),
+                GField(
+                  label: 'Note'.tr,
+                  hint: 'Optional — what it was for'.tr,
+                  controller: _title,
+                  textCapitalization: TextCapitalization.sentences,
+                ),
+                const SizedBox(height: Gap.lg),
+                GField(
+                  label: 'Paid to'.tr,
+                  hint: 'Optional'.tr,
+                  controller: _supplier,
+                  textCapitalization: TextCapitalization.words,
                 ),
                 const SizedBox(height: Gap.xl),
                 GButton.accent(

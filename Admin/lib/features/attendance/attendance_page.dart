@@ -71,7 +71,7 @@ class _AttendancePageState extends ConsumerState<AttendancePage> {
   /// right — hence the picker staying in plain sight rather than tucked
   /// into a menu.
   void _restoreWho() {
-    final staff = ref.read(staffProvider).where((s) => s.active).toList();
+    final staff = _punchable(ref.read(staffProvider));
     if (staff.isEmpty) return;
     final saved = localStore.lastPuncher;
     setState(
@@ -80,6 +80,17 @@ class _AttendancePageState extends ConsumerState<AttendancePage> {
         orElse: () => staff.first,
       ),
     );
+  }
+
+  /// Who this person may punch for. The owner or a manager, on a shared
+  /// counter phone, punches whoever is standing there; anybody else punches
+  /// only the staff record that is them. The database holds the same line
+  /// (31_staff_logins.sql).
+  List<Staff> _punchable(List<Staff> all) {
+    final access = ref.read(accessProvider);
+    final active = all.where((s) => s.active);
+    if (access.manageAttendance) return active.toList();
+    return active.where((s) => s.id == access.staffId).toList();
   }
 
   Future<void> _check() async {
@@ -170,7 +181,8 @@ class _AttendancePageState extends ConsumerState<AttendancePage> {
   Widget build(BuildContext context) {
     final p = context.c;
     final site = ref.watch(attendanceSiteProvider);
-    final staff = ref.watch(staffProvider).where((s) => s.active).toList();
+    final access = ref.watch(accessProvider);
+    final staff = _punchable(ref.watch(staffProvider));
     final log = ref.watch(attendanceProvider);
     final onFloor = ref.watch(onFloorProvider);
 
@@ -188,19 +200,28 @@ class _AttendancePageState extends ConsumerState<AttendancePage> {
             tooltip: 'Register'.tr,
             onTap: () => context.push('/attendance/register'),
           ),
-          const SizedBox(width: Gap.sm),
-          GIconButton(
-            icon: Icons.tune_rounded,
-            size: 40,
-            tooltip: 'Attendance location'.tr,
-            onTap: () => context.push('/attendance/site'),
-          ),
+          if (access.workshopSettings) ...[
+            const SizedBox(width: Gap.sm),
+            GIconButton(
+              icon: Icons.tune_rounded,
+              size: 40,
+              tooltip: 'Attendance location'.tr,
+              onTap: () => context.push('/attendance/site'),
+            ),
+          ],
         ],
       ),
       body: site == null
-          ? _NoSite(onSet: () => context.push('/attendance/site'))
+          ? _NoSite(
+              onSet: access.workshopSettings
+                  ? () => context.push('/attendance/site')
+                  : null,
+            )
           : staff.isEmpty
-          ? _NoTeam(onAdd: () => context.push('/staff'))
+          ? _NoTeam(
+              onAdd: access.team ? () => context.push('/staff') : null,
+              linked: access.manageAttendance || access.staffId.isNotEmpty,
+            )
           : RefreshIndicator(
               onRefresh: () async {
                 await ref.read(adminProvider.notifier).refreshAttendance();
@@ -298,7 +319,7 @@ class _AttendancePageState extends ConsumerState<AttendancePage> {
     await GFeedback.sheet<void>(
       context,
       title: 'Who is punching?'.tr,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.md, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -636,35 +657,44 @@ class PunchRow extends StatelessWidget {
 class _NoSite extends StatelessWidget {
   const _NoSite({required this.onSet});
 
-  final VoidCallback onSet;
+  /// Null for somebody who cannot set it: they are told who can.
+  final VoidCallback? onSet;
 
   @override
   Widget build(BuildContext context) => GEmptyState(
     icon: Icons.location_searching_rounded,
     art: Art.searching,
     title: 'No attendance location yet'.tr,
-    message:
-        'Stand in the workshop and pin it once. After that, staff can only punch in from within the circle you set.'
-            .tr,
-    actionLabel: 'Set the location'.tr,
+    message: onSet == null
+        ? 'The owner pins the workshop once. Punching in opens after that.'.tr
+        : 'Stand in the workshop and pin it once. After that, staff can only punch in from within the circle you set.'
+              .tr,
+    actionLabel: onSet == null ? null : 'Set the location'.tr,
     onAction: onSet,
   );
 }
 
 class _NoTeam extends StatelessWidget {
-  const _NoTeam({required this.onAdd});
+  const _NoTeam({required this.onAdd, this.linked = true});
 
-  final VoidCallback onAdd;
+  final VoidCallback? onAdd;
+
+  /// False for a staff login the owner never tied to a person on the team,
+  /// which is the one thing that person can do nothing about.
+  final bool linked;
 
   @override
   Widget build(BuildContext context) => GEmptyState(
     icon: Icons.engineering_rounded,
     art: Art.customers,
-    title: 'Nobody on the team yet'.tr,
-    message:
-        'Attendance is marked against a person, so add the team before anybody can punch in.'
-            .tr,
-    actionLabel: 'Add a mechanic'.tr,
+    title: linked
+        ? 'Nobody on the team yet'.tr
+        : 'Your login is not on the team list'.tr,
+    message: linked
+        ? 'Attendance is marked against a person, so add the team before anybody can punch in.'
+              .tr
+        : 'Ask the owner to give you app access from your name under Staff.'.tr,
+    actionLabel: onAdd == null ? null : 'Add a mechanic'.tr,
     onAction: onAdd,
   );
 }

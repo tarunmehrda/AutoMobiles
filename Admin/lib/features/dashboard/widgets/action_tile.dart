@@ -49,6 +49,7 @@ class ActionTile extends StatelessWidget {
           boxShadow: p.isDark ? null : Shadows.soft(p),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -104,7 +105,7 @@ class ActionTile extends StatelessWidget {
                   ),
               ],
             ),
-            const Spacer(),
+            const SizedBox(height: Gap.md),
             Text(
               title,
               maxLines: 2,

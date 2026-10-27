@@ -536,10 +536,17 @@ class _CurrentService extends StatelessWidget {
                           : (card.isComplete ? 'Amount due' : 'Estimate'),
                       style: AppType.labelS.c(p.inkMuted),
                     ),
-                    Text(
-                      Fmt.money(card.settled ? card.total : card.balance),
-                      style: AppType.moneyL.s(22).c(
-                          card.settled ? p.success : p.accentInk),
+                    // One line, shrunk if it has to be: a large bill at a
+                    // large font used to break mid-number.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        Fmt.money(card.settled ? card.total : card.balance),
+                        maxLines: 1,
+                        style: AppType.moneyL.s(22).c(
+                            card.settled ? p.success : p.accentInk),
+                      ),
                     ),
                   ],
                 ),

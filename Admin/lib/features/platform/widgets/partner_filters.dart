@@ -128,15 +128,14 @@ class PartnerFilterBar extends StatelessWidget {
                   count: active,
                   icon: Icons.check_circle_rounded,
                   on: filter.active,
-                  onTap: () => onChanged(const PartnerFilter()),
+                  onTap: () => onChanged(filter.copyWith(active: true)),
                 ),
                 _Segment(
                   label: 'Non-active',
                   count: blocked,
                   icon: Icons.block_rounded,
                   on: !filter.active,
-                  onTap: () =>
-                      onChanged(const PartnerFilter(active: false)),
+                  onTap: () => onChanged(filter.copyWith(active: false)),
                 ),
               ],
             ),
@@ -304,7 +303,14 @@ class _Segment extends StatelessWidget {
             children: [
               Icon(icon, size: 16, color: fg),
               const SizedBox(width: Gap.xs),
-              Text(label, style: AppType.labelM.c(fg)),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.labelM.c(fg),
+                ),
+              ),
               const SizedBox(width: Gap.xs),
               Container(
                 padding:
@@ -345,7 +351,8 @@ class _Dropdown extends StatelessWidget {
       scale: 0.97,
       child: AnimatedContainer(
         duration: Motion.fast,
-        height: 48,
+        // A floor, not a fixed height: a large system font needs the room.
+        constraints: const BoxConstraints(minHeight: 48),
         padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
         decoration: BoxDecoration(
           color: set ? p.accentSoft : p.surface,
@@ -361,6 +368,8 @@ class _Dropdown extends StatelessWidget {
                 children: [
                   Text(
                     label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: AppType.labelS.c(set ? p.accentInk : p.inkMuted),
                   ),
                   Text(

@@ -44,26 +44,25 @@ void main() {
   });
 
   group('the badge', () {
-    testWidgets('inks itself and its tile together', (tester) async {
-      await tester.pumpWidget(host(const BrandBadge(), dark: false));
-      await tester.pumpAndSettle();
-      expect(assetOf(tester), BrandArt.markLight);
-
-      await tester.pumpWidget(host(const BrandBadge(), dark: true));
-      await tester.pumpAndSettle();
-      expect(assetOf(tester), BrandArt.markDark);
-      // On carbon the tile is the carbon plate, so the amber cut reads.
-      final box = tester.widget<Container>(find.byType(Container).first);
-      expect((box.decoration as BoxDecoration).color, BrandArt.carbon);
+    testWidgets('sits on the carbon plate in either theme', (tester) async {
+      // The mark's white wordmark vanishes on a paper well, so the tile
+      // never follows the theme.
+      for (final dark in [false, true]) {
+        await tester.pumpWidget(host(const BrandBadge(), dark: dark));
+        await tester.pumpAndSettle();
+        expect(assetOf(tester), BrandArt.markDark);
+        final box = tester.widget<Container>(find.byType(Container).first);
+        expect((box.decoration as BoxDecoration).color, BrandArt.carbon);
+      }
     });
   });
 
   group('the lockup', () {
-    testWidgets('carries the wordmark under the mark', (tester) async {
+    testWidgets('is the mark alone — the name is in the artwork', (tester) async {
       await tester.pumpWidget(host(const BrandLogo(width: 240), dark: true));
       await tester.pumpAndSettle();
       expect(assetOf(tester), BrandArt.markDark);
-      expect(find.text('BALAJI AUTOMOBILES'), findsOneWidget);
+      expect(find.text('BALAJI AUTOMOBILES'), findsNothing);
     });
   });
 

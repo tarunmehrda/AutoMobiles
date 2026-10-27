@@ -20,6 +20,7 @@ import '../../data/models/entities.dart';
 import '../../state/admin_state.dart';
 import '../../state/providers.dart';
 import '../shared/support_sheet.dart';
+import '../trade/payment_sheets.dart';
 
 /// Who the workshop buys parts from, and what is still owed to each of them.
 class SuppliersPage extends ConsumerStatefulWidget {
@@ -43,6 +44,7 @@ class _SuppliersPageState extends ConsumerState<SuppliersPage> {
   Widget build(BuildContext context) {
     final p = context.c;
     final all = ref.watch(suppliersProvider);
+    final owed = all.fold<double>(0, (s, e) => s + e.outstanding);
     final q = _query.trim().toLowerCase();
     final rows = q.isEmpty
         ? all
@@ -56,7 +58,9 @@ class _SuppliersPageState extends ConsumerState<SuppliersPage> {
       backgroundColor: p.canvas,
       appBar: GHeader(
         title: 'Suppliers'.tr,
-        subtitle: '{0} on record'.trf([all.length]),
+        subtitle: owed > 0
+            ? '{0} on record  ·  {1} owed'.trf([all.length, Fmt.money(owed)])
+            : '{0} on record'.trf([all.length]),
       ),
       body: Column(
         children: [
@@ -119,107 +123,159 @@ class _Row extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.c;
-    return Container(
-      margin: const EdgeInsets.only(bottom: Gap.sm),
-      padding: const EdgeInsets.all(Gap.lg),
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: R.all(R.md),
-        border: Border.all(color: p.line),
-        boxShadow: Shadows.soft(p),
-      ),
-      child: Row(
-        children: [
-          GAvatar(
-            initials: Fmt.initials(supplier.name),
-            size: 42,
-            tone: GTone.info,
-          ),
-          const SizedBox(width: Gap.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final owes = supplier.outstanding > 0.009;
+    return Pressable(
+      // Tapping edits: a supplier's number or GSTIN changes, and the only way
+      // to fix one used to be deleting it.
+      onTap: () => showSupplierSheet(context, existing: supplier),
+      scale: 0.985,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: Gap.sm),
+        padding: const EdgeInsets.all(Gap.lg),
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: R.all(R.md),
+          border: Border.all(color: p.line),
+          boxShadow: Shadows.soft(p),
+        ),
+        child: Column(
+          children: [
+            Row(
               children: [
-                Text(
-                  supplier.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.labelL.c(p.ink),
+                GAvatar(
+                  initials: Fmt.initials(supplier.name),
+                  size: 42,
+                  tone: GTone.info,
+                ),
+                const SizedBox(width: Gap.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        supplier.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.labelL.c(p.ink),
+                      ),
+                      if (supplier.phone.isNotEmpty)
+                        Text(
+                          supplier.phone,
+                          style: AppType.bodyS.c(p.inkMuted),
+                        ),
+                      if (supplier.gstin.isNotEmpty)
+                        Text(
+                          'GSTIN {0}'.trf([supplier.gstin]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.labelS.c(p.inkFaint),
+                        ),
+                    ],
+                  ),
                 ),
                 if (supplier.phone.isNotEmpty)
-                  Text(supplier.phone, style: AppType.bodyS.c(p.inkMuted)),
-                if (supplier.gstin.isNotEmpty)
-                  Text(
-                    'GSTIN {0}'.trf([supplier.gstin]),
-                    style: AppType.labelS.c(p.inkFaint),
+                  Pressable(
+                    // The shared dialler says so when there is nothing to dial
+                    // with; `canLaunchUrl` used to answer no and the tap did
+                    // nothing at all.
+                    onTap: () => launchDial(context, supplier.phone),
+                    scale: 0.9,
+                    child: Container(
+                      height: 36,
+                      width: 36,
+                      decoration: BoxDecoration(
+                        color: p.successSoft,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.call_rounded,
+                        size: 17,
+                        color: p.success,
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: Gap.sm),
+                Pressable(
+                  onTap: () async {
+                    final ok = await GFeedback.confirm(
+                      context,
+                      title: 'Remove {0}?'.trf([supplier.name]),
+                      message:
+                          'Purchase orders already raised keep their name.'.tr,
+                      confirmLabel: 'Remove'.tr,
+                      destructive: true,
+                      icon: Icons.delete_outline_rounded,
+                    );
+                    if (!ok) return;
+                    ref
+                        .read(adminProvider.notifier)
+                        .removeSupplier(supplier.id);
+                  },
+                  scale: 0.9,
+                  child: Icon(
+                    Icons.delete_outline_rounded,
+                    size: 20,
+                    color: p.danger,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: Gap.md),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    owes
+                        ? 'Outstanding {0}'.trf([
+                            Fmt.money(supplier.outstanding),
+                          ])
+                        : 'Nothing outstanding'.tr,
+                    style: AppType.labelM.c(owes ? p.danger : p.success),
+                  ),
+                ),
+                if (owes)
+                  GLink(
+                    label: 'Pay'.tr,
+                    icon: Icons.north_east_rounded,
+                    onTap: () =>
+                        showPayOutSheet(context, supplierId: supplier.id),
                   ),
               ],
             ),
-          ),
-          if (supplier.phone.isNotEmpty)
-            Pressable(
-              // The shared dialler says so when there is nothing to dial
-              // with; `canLaunchUrl` used to answer no and the tap did
-              // nothing at all.
-              onTap: () => launchDial(context, supplier.phone),
-              scale: 0.9,
-              child: Container(
-                height: 36,
-                width: 36,
-                decoration: BoxDecoration(
-                  color: p.successSoft,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.call_rounded, size: 17, color: p.success),
-              ),
-            ),
-          const SizedBox(width: Gap.sm),
-          Pressable(
-            onTap: () async {
-              final ok = await GFeedback.confirm(
-                context,
-                title: 'Remove {0}?'.trf([supplier.name]),
-                message: 'Purchase orders already raised keep their name.'.tr,
-                confirmLabel: 'Remove'.tr,
-                destructive: true,
-                icon: Icons.delete_outline_rounded,
-              );
-              if (!ok) return;
-              ref.read(adminProvider.notifier).removeSupplier(supplier.id);
-            },
-            scale: 0.9,
-            child: Icon(
-              Icons.delete_outline_rounded,
-              size: 20,
-              color: p.danger,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-Future<void> showSupplierSheet(BuildContext context) =>
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => const _SupplierSheet(),
-    );
+/// Add a supplier — or, with [existing], correct one. Resolves to the
+/// supplier saved, so a purchase bill can add one and carry straight on
+/// with it selected.
+Future<Supplier?> showSupplierSheet(
+  BuildContext context, {
+  Supplier? existing,
+}) => showModalBottomSheet<Supplier>(
+  context: context,
+  backgroundColor: Colors.transparent,
+  isScrollControlled: true,
+  builder: (_) => _SupplierSheet(existing: existing),
+);
 
 class _SupplierSheet extends ConsumerStatefulWidget {
-  const _SupplierSheet();
+  const _SupplierSheet({this.existing});
+
+  final Supplier? existing;
 
   @override
   ConsumerState<_SupplierSheet> createState() => _SupplierSheetState();
 }
 
 class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
-  final _name = TextEditingController();
-  final _phone = TextEditingController();
-  final _address = TextEditingController();
-  final _gstin = TextEditingController();
+  late final _name = TextEditingController(text: widget.existing?.name);
+  late final _phone = TextEditingController(text: widget.existing?.phone);
+  late final _address = TextEditingController(text: widget.existing?.address);
+  late final _gstin = TextEditingController(text: widget.existing?.gstin);
 
   @override
   void dispose() {
@@ -229,7 +285,37 @@ class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
     super.dispose();
   }
 
-  bool get _valid => _name.text.trim().isNotEmpty;
+  /// Name and a full ten-digit number: a supplier nobody can call is one
+  /// the counter cannot chase for a short delivery.
+  bool get _valid =>
+      _name.text.trim().isNotEmpty && _phone.text.trim().length == 10;
+
+  void _save() {
+    final ctrl = ref.read(adminProvider.notifier);
+    final old = widget.existing;
+    final Supplier saved;
+    if (old == null) {
+      saved = ctrl.addSupplier(
+        name: _name.text,
+        phone: _phone.text,
+        address: _address.text,
+        gstin: _gstin.text,
+      );
+    } else {
+      saved = old.copyWith(
+        name: _name.text.trim(),
+        phone: _phone.text.trim(),
+        address: _address.text.trim(),
+        gstin: _gstin.text.trim().toUpperCase(),
+      );
+      ctrl.updateSupplier(saved);
+    }
+    Navigator.of(context).pop(saved);
+    GFeedback.success(
+      context,
+      old == null ? 'Supplier added'.tr : 'Supplier updated'.tr,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -269,10 +355,15 @@ class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
                   ),
                 ),
                 const SizedBox(height: Gap.lg),
-                Text('Add Supplier'.tr, style: AppType.h1.c(p.ink)),
+                Text(
+                  widget.existing == null
+                      ? 'Add Supplier'.tr
+                      : 'Edit Supplier'.tr,
+                  style: AppType.h1.c(p.ink),
+                ),
                 const SizedBox(height: Gap.lg),
                 GField(
-                  label: 'Supplier name *'.tr,
+                  label: 'Party Name / Firm Name *'.tr,
                   hint: 'Bharat Auto Parts'.tr,
                   controller: _name,
                   textCapitalization: TextCapitalization.words,
@@ -280,7 +371,7 @@ class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
                 ),
                 const SizedBox(height: Gap.lg),
                 GField(
-                  label: 'Mobile number'.tr,
+                  label: 'Contact No. *'.tr,
                   hint: '9876543210',
                   controller: _phone,
                   keyboardType: TextInputType.phone,
@@ -289,10 +380,11 @@ class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(10),
                   ],
+                  onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: Gap.lg),
                 GField(
-                  label: 'Address'.tr,
+                  label: 'Address (optional)'.tr,
                   hint: '12, MG Road, Bengaluru'.tr,
                   controller: _address,
                   maxLines: 2,
@@ -300,7 +392,7 @@ class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
                 ),
                 const SizedBox(height: Gap.lg),
                 GField(
-                  label: 'GSTIN',
+                  label: 'GSTIN (optional)'.tr,
                   hint: '29ABCDE1234F1Z5',
                   controller: _gstin,
                   textCapitalization: TextCapitalization.characters,
@@ -308,20 +400,7 @@ class _SupplierSheetState extends ConsumerState<_SupplierSheet> {
                 const SizedBox(height: Gap.xl),
                 GButton.accent(
                   label: 'Save supplier'.tr,
-                  onPressed: !_valid
-                      ? null
-                      : () {
-                          ref
-                              .read(adminProvider.notifier)
-                              .addSupplier(
-                                name: _name.text,
-                                phone: _phone.text,
-                                address: _address.text,
-                                gstin: _gstin.text,
-                              );
-                          Navigator.of(context).pop();
-                          GFeedback.success(context, 'Supplier added'.tr);
-                        },
+                  onPressed: _valid ? _save : null,
                 ),
               ],
             ),

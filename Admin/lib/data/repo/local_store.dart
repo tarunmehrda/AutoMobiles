@@ -30,6 +30,11 @@ class LocalStore {
   /// their own wants no selection step at all after the first time.
   static const String _puncherKey = 'garagepro.admin.puncher';
 
+  /// The signed-in person's role, as the database last answered it, so a
+  /// console that opens with no network still draws a mechanic's menu for
+  /// a mechanic. Cleared on sign-out with the snapshot.
+  static const String _accessKey = 'garagepro.admin.access';
+
   final SharedPreferences _prefs;
   Timer? _debounce;
 
@@ -48,6 +53,20 @@ class LocalStore {
 
   Future<void> setLastPuncher(String staffId) =>
       _prefs.setString(_puncherKey, staffId);
+
+  Map<String, dynamic>? get access {
+    final raw = _prefs.getString(_accessKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setAccess(Map<String, dynamic>? json) => json == null
+      ? _prefs.remove(_accessKey)
+      : _prefs.setString(_accessKey, jsonEncode(json));
 
   static Future<LocalStore> open() async =>
       LocalStore(await SharedPreferences.getInstance());
@@ -89,5 +108,18 @@ class LocalStore {
   Future<void> clear() async {
     _debounce?.cancel();
     await _prefs.remove(_key);
+  }
+
+  /// After the account is deleted: nothing of it may stay on the phone, not
+  /// even the "a workshop was registered here" bit that would hold the next
+  /// sign-in at a retry screen for a shop that no longer exists.
+  ///
+  /// The snapshot itself is replaced by [AdminController.wipe], which keeps
+  /// only the language and theme, so the next person is not walked through
+  /// onboarding again.
+  Future<void> forgetEverything() async {
+    await _prefs.remove(_registeredKey);
+    await _prefs.remove(_accessKey);
+    await _prefs.remove(_puncherKey);
   }
 }

@@ -78,20 +78,29 @@ class _PendingPageState extends ConsumerState<PendingPage> {
                 ),
                 child: Row(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'OUTSTANDING',
-                          style: AppType.over
-                              .s(9.5)
-                              .c(p.onInverse.withValues(alpha: 0.55)),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(Fmt.money(total), style: AppType.moneyL.c(p.volt)),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'OUTSTANDING',
+                            style: AppType.over
+                                .s(9.5)
+                                .c(p.onInverse.withValues(alpha: 0.55)),
+                          ),
+                          const SizedBox(height: 2),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              Fmt.money(total),
+                              style: AppType.moneyL.c(p.volt),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: Gap.md),
                     Text(
                       Tr.plural(
                         pending.length,

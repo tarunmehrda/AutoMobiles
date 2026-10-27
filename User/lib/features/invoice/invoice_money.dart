@@ -14,6 +14,7 @@ library;
 import 'package:flutter/foundation.dart';
 
 import '../../core/tax/gst.dart';
+import '../../core/utils/formatters.dart';
 import '../../data/models/workshop.dart';
 
 @immutable
@@ -66,7 +67,7 @@ class BillBlock {
       taxed: card.taxed,
       interState: card.interState,
       rows: [
-        BillRow('Sub total', card.subTotal),
+        BillRow('Subtotal', card.subTotal),
         if (card.discount > 0) BillRow('Discount', bill.billDiscount),
         if (card.taxed) ...[
           BillRow('Taxable value', bill.taxable),
@@ -80,10 +81,24 @@ class BillBlock {
         if (card.roundOff.abs() >= 0.005)
           BillRow('Round off', card.roundOff),
         BillRow('Total', card.total),
-        BillRow('Advance', card.paid),
+        // Advance is only what was taken when the card was opened. This row
+        // used to print everything paid as "Advance", so a customer who
+        // settled at pickup was told they had paid it all up front.
+        BillRow('Advance', card.advance),
+        BillRow('Payable', card.payable),
+        BillRow('Paid', card.paidAfterAdvance),
         BillRow('Balance', card.balance, strong: true),
       ],
     );
+  }
+
+  /// The GST column for one line: "18%", or a dash on an untaxed bill.
+  static String gstOf(WorkshopCard card, WorkshopLine line) {
+    if (!card.taxed) return '—';
+    final v = card.gstPercentOf(line);
+    return v == v.roundToDouble()
+        ? '${v.toInt()}%'
+        : '${v.toStringAsFixed(1)}%';
   }
 
   /// What the document calls itself.
@@ -145,6 +160,58 @@ class Letterhead {
       email: pick(card.garageEmail, linked.email),
       gstin: pick(card.garageGstin, linked.gstin),
       terms: pick(card.garageTerms, linked.terms),
+    );
+  }
+}
+
+/// The other side of the bill, and the vehicle's insurance under it, as
+/// lines ready to print — the same for the screen and the PDF.
+///
+/// The workshop's customer record comes first: it is who the bill is made
+/// out to, which may be a firm rather than whoever holds this phone. The
+/// profile's name and number only stand in for a card that does not carry
+/// them yet.
+@immutable
+class BillParty {
+  const BillParty({this.billTo = const [], this.insurance = const []});
+
+  final List<String> billTo;
+  final List<String> insurance;
+
+  factory BillParty.of(
+    WorkshopCard card, {
+    String name = '',
+    String phone = '',
+  }) {
+    String pick(String own, String fallback) =>
+        own.trim().isNotEmpty ? own.trim() : fallback.trim();
+    final who = pick(card.billName, name);
+    final mobile = pick(card.billPhone, phone);
+    String? on(DateTime? d) => d == null ? null : Fmt.date(d);
+
+    return BillParty(
+      billTo: [
+        if (who.isNotEmpty) who,
+        if (mobile.isNotEmpty) 'Mobile No: $mobile',
+        if (card.billEmail.trim().isNotEmpty) 'Email: ${card.billEmail.trim()}',
+        if (card.billAddress.trim().isNotEmpty) card.billAddress.trim(),
+        if (card.billGstin.trim().isNotEmpty)
+          'GSTIN: ${card.billGstin.trim()}',
+      ],
+      insurance: !card.hasInsurance
+          ? const []
+          : [
+              for (final (label, value) in [
+                ('Insurer', card.insurer),
+                ('Policy No', card.policyNo),
+                ('Policy Date', on(card.insuranceFrom)),
+                ('Expiry', on(card.insuranceExpiry)),
+                ('Insurer Address', card.insurerAddress),
+                ('Insurer GSTIN', card.insurerGstin),
+              ])
+                if ((value ?? '').trim().isNotEmpty)
+                  '$label: ${value!.trim()}',
+            ],
     );
   }
 }

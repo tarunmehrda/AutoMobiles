@@ -142,38 +142,11 @@ Future<bool> showCloseSheet(
                     ),
                   ),
                   const SizedBox(height: Gap.md),
-                  Wrap(
-                    spacing: Gap.sm,
-                    runSpacing: Gap.sm,
-                    children: [
-                      for (final m in PayMode.values)
-                        Pressable(
-                          onTap: () => setSheet(() => mode = m),
-                          scale: 0.95,
-                          child: AnimatedContainer(
-                            duration: Motion.fast,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Gap.md,
-                              vertical: Gap.sm,
-                            ),
-                            decoration: BoxDecoration(
-                              color: m == mode ? p.ink : p.surface,
-                              borderRadius: R.all(R.pill),
-                              border: Border.all(
-                                color: m == mode ? p.ink : p.line,
-                              ),
-                            ),
-                            child: Text(
-                              m.label,
-                              style: AppType.labelM.c(
-                                m == mode
-                                    ? (p.isDark ? p.canvas : Colors.white)
-                                    : p.inkSoft,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+                  Text('RECEIVED BY'.tr, style: AppType.over.c(p.inkFaint)),
+                  const SizedBox(height: Gap.sm),
+                  PayModePicker(
+                    mode: mode,
+                    onChanged: (m) => setSheet(() => mode = m),
                   ),
                 ],
                 const SizedBox(height: Gap.xxl),

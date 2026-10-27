@@ -62,11 +62,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Straight to the bill step, which is where the floor is assigned.
-    tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(3);
+    // Straight to the services step, which is where the floor is assigned.
+    tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(4);
     await tester.pumpAndSettle();
 
-    // The step's masthead carries a four-node stepper now, so the mechanic
+    // The step's masthead carries a six-node stepper now, so the mechanic
     // field starts below the fold on a phone and has to be scrolled to before
     // it can be tapped.
     await tester.ensureVisible(find.text('Select Mechanic').last);

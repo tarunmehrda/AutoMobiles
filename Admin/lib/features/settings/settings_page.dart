@@ -13,7 +13,11 @@ import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/g_feedback.dart';
 import '../../core/widgets/g_surface.dart';
 import '../../data/repo/platform_gateway.dart';
+import '../../state/auth_state.dart';
 import '../../state/providers.dart';
+import '../business/business_drawer.dart' show rateApp;
+import '../business/company_sheet.dart';
+import '../shared/delete_account.dart';
 import '../shared/sign_out.dart';
 import '../shared/support_sheet.dart';
 
@@ -28,6 +32,12 @@ class SettingsPage extends ConsumerWidget {
     final p = context.c;
     final garage = ref.watch(garageProvider);
     final shareText = ref.watch(onlineShareTextProvider);
+    final access = ref.watch(accessProvider);
+    // Staff sign in with their own email, so that is the one to show them;
+    // the workshop's email is the owner's.
+    final signedInAs = access.isOwner
+        ? (garage?.email ?? '')
+        : (ref.watch(authUserProvider)?.email ?? '');
 
     return Scaffold(
       backgroundColor: p.canvas,
@@ -56,18 +66,22 @@ class SettingsPage extends ConsumerWidget {
                           maxLines: 2,
                           style: AppType.h1.s(21).c(p.ink).w(FontWeight.w800),
                         ),
-                        Text('Owner'.tr, style: AppType.bodyS.c(p.accentInk)),
-                        if ((garage?.email ?? '').isNotEmpty)
+                        Text(
+                          access.role.label,
+                          style: AppType.bodyS.c(p.accentInk),
+                        ),
+                        if (signedInAs.isNotEmpty)
                           Text(
-                            garage!.email,
+                            signedInAs,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppType.bodyS.c(p.inkMuted),
                           ),
-                        Text(
-                          garage?.phone ?? '',
-                          style: AppType.bodyS.c(p.inkMuted),
-                        ),
+                        if (access.isOwner)
+                          Text(
+                            garage?.phone ?? '',
+                            style: AppType.bodyS.c(p.inkMuted),
+                          ),
                       ],
                     ),
                   ),
@@ -88,12 +102,37 @@ class SettingsPage extends ConsumerWidget {
                     onTap: () => context.go('/home'),
                   ),
                   GTile(
-                    title: 'Options'.tr,
-                    subtitle: 'How the app behaves day to day'.tr,
-                    icon: Icons.tune_rounded,
-                    iconColor: p.info,
-                    onTap: () => context.push('/settings/options'),
+                    title: 'Switch or add company'.tr,
+                    subtitle: 'Your other workshops on this phone'.tr,
+                    icon: Icons.swap_horiz_rounded,
+                    iconColor: p.accent,
+                    onTap: () => showCompanySheet(context),
                   ),
+                  if (access.allows('/bank-accounts'))
+                    GTile(
+                      title: 'Bank & Cash'.tr,
+                      subtitle: 'Accounts, cash in hand, invoice bank details'
+                          .tr,
+                      icon: Icons.account_balance_rounded,
+                      iconColor: p.success,
+                      onTap: () => context.push('/bank-accounts'),
+                    ),
+                  if (access.allows('/settings/sync-share'))
+                    GTile(
+                      title: 'Sync & Share'.tr,
+                      subtitle: 'Staff access and more devices'.tr,
+                      icon: Icons.sync_rounded,
+                      iconColor: p.info,
+                      onTap: () => context.push('/settings/sync-share'),
+                    ),
+                  if (access.workshopSettings)
+                    GTile(
+                      title: 'Options'.tr,
+                      subtitle: 'How the app behaves day to day'.tr,
+                      icon: Icons.tune_rounded,
+                      iconColor: p.info,
+                      onTap: () => context.push('/settings/options'),
+                    ),
                   // The same message the Online Garage screen shares. It used
                   // to be written here separately, with "https://" stuck on
                   // the front of a link that already had it and a promise
@@ -112,8 +151,12 @@ class SettingsPage extends ConsumerWidget {
                           'Switch on Online Garage first, so customers can find and book you.'
                               .tr,
                           icon: Icons.storefront_rounded,
-                          actionLabel: 'Open'.tr,
-                          onAction: () => context.push('/online-garage'),
+                          actionLabel: access.workshopSettings
+                              ? 'Open'.tr
+                              : null,
+                          onAction: access.workshopSettings
+                              ? () => context.push('/online-garage')
+                              : null,
                           duration: const Duration(seconds: 5),
                         );
                         return;
@@ -128,32 +171,66 @@ class SettingsPage extends ConsumerWidget {
                     iconColor: p.info,
                     onTap: () => context.push('/settings/language'),
                   ),
-                  GTile(
-                    title: 'Greetings & Offers'.tr,
-                    subtitle: 'What goes out on a festival or a birthday'.tr,
-                    icon: Icons.card_giftcard_rounded,
-                    iconColor: p.warning,
-                    onTap: () => context.push('/settings/greetings'),
-                  ),
-                  GTile(
-                    title: 'Commission'.tr,
-                    subtitle: 'What this workshop owes the platform'.tr,
-                    icon: Icons.percent_rounded,
-                    iconColor: p.warning,
-                    onTap: () => context.push('/settings/commission'),
-                  ),
+                  // Moved here from the home grid.
+                  if (access.allows('/feedback'))
+                    GTile(
+                      title: 'Feedback'.tr,
+                      subtitle: 'Customer ratings'.tr,
+                      icon: Icons.star_rounded,
+                      iconColor: p.warning,
+                      onTap: () => context.push('/feedback'),
+                    ),
+                  if (access.allows('/settings/greetings'))
+                    GTile(
+                      title: 'Greetings & Offers'.tr,
+                      subtitle: 'What goes out on a festival or a birthday'.tr,
+                      icon: Icons.card_giftcard_rounded,
+                      iconColor: p.warning,
+                      onTap: () => context.push('/settings/greetings'),
+                    ),
+                  if (access.isOwner)
+                    GTile(
+                      title: 'Commission'.tr,
+                      subtitle: 'What this workshop owes the platform'.tr,
+                      icon: Icons.percent_rounded,
+                      iconColor: p.warning,
+                      onTap: () => context.push('/settings/commission'),
+                    ),
                   // Only for the account that runs the register. Everybody
                   // else never learns the section exists — and if they
                   // reached it by URL, every list would come back empty
                   // because the database, not this line, is the guard.
-                  if (ref.watch(isPlatformAdminProvider).valueOrNull ?? false)
+                  if (ref.watch(isPlatformAdminProvider).valueOrNull ??
+                      false) ...[
                     GTile(
                       title: 'Platform',
-                      subtitle: 'Partners, requests, listings',
+                      subtitle: 'Partners, media, heads',
                       icon: Icons.hub_rounded,
                       iconColor: p.accent,
-                      onTap: () => context.push('/platform'),
+                      onTap: () => context.push('/platform/admin'),
                     ),
+                    GTile(
+                      title: 'Media',
+                      subtitle: 'The welcome video both apps play',
+                      icon: Icons.play_circle_outline_rounded,
+                      iconColor: p.info,
+                      onTap: () => context.push('/platform/admin?tab=media'),
+                    ),
+                  ],
+                  GTile(
+                    title: 'Grow your business'.tr,
+                    subtitle: 'Social media, reviews and offers'.tr,
+                    icon: Icons.campaign_rounded,
+                    iconColor: p.accent,
+                    onTap: () => context.push('/grow-business'),
+                  ),
+                  GTile(
+                    title: 'Rate this app'.tr,
+                    subtitle: 'Tell us how we are doing on the Play Store'.tr,
+                    icon: Icons.star_rate_rounded,
+                    iconColor: const Color(0xFFF2B01E),
+                    onTap: () => rateApp(context),
+                  ),
                   GTile(
                     title: 'Help & Support'.tr,
                     subtitle: 'Reach a human, or read the answers'.tr,
@@ -185,6 +262,16 @@ class SettingsPage extends ConsumerWidget {
                     iconColor: p.danger,
                     onTap: () => confirmSignOut(context, ref),
                   ),
+                  if (AppConfig.hasSupabase)
+                    GTile(
+                      title: 'Delete account'.tr,
+                      subtitle: access.isOwner
+                          ? 'Erase the workshop and everything in it'.tr
+                          : 'Remove your login from this workshop'.tr,
+                      icon: Icons.delete_forever_rounded,
+                      iconColor: p.danger,
+                      onTap: () => confirmDeleteAccount(context, ref),
+                    ),
                 ],
               ),
             ),

@@ -18,6 +18,7 @@ import '../../core/widgets/pressable.dart';
 import '../../data/models/entities.dart';
 import '../../data/models/enums.dart';
 import '../../state/providers.dart';
+import '../jobcard/billing/master_form_page.dart';
 
 /// The way into everything the workshop stocks and sells: what is on the
 /// shelf, the master lists behind a bill, and the paperwork that moves stock
@@ -55,28 +56,47 @@ class InventoryDashboardPage extends ConsumerWidget {
           ),
           const SizedBox(height: Gap.md),
 
+          // --- The two ways onto the shelf, as the owner named them ------
+          Row(
+            children: [
+              Expanded(
+                child: GButton.accent(
+                  label: '+ Add Spares / Stocks'.tr,
+                  size: GButtonSize.md,
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          const MasterFormPage(kind: LineKind.spare),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: Gap.sm),
+              Expanded(
+                child: GButton(
+                  label: '+ Add Jobs / Labour Charge'.tr,
+                  kind: GButtonKind.outline,
+                  size: GButtonSize.md,
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const MasterFormPage(kind: LineKind.job),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Gap.md),
+
           // --- What is on it, by kind -----------------------------------
           // IntrinsicHeight: a ListView hands its children unbounded height,
           // and a Row cannot stretch into that. Without it the three cards
-          // come out ragged the moment one blurb wraps.
+          // come out ragged the moment one blurb wraps. Spares and Jobs only —
+          // the two the workshop's own sheet names.
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Entrance(
-                    index: 1,
-                    child: _CountCard(
-                      label: 'Lube'.tr,
-                      count: lubes.length,
-                      blurb: 'Oils on the shelf'.tr,
-                      icon: Icons.water_drop_rounded,
-                      tint: p.accent,
-                      onTap: () => context.push('/inventory/master?kind=lube'),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: Gap.sm + 2),
                 Expanded(
                   child: Entrance(
                     index: 2,
@@ -427,7 +447,7 @@ class _StockBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Add spares, oil and labour rates once and bill them in a tap.'
+                  'Add spares and labour rates once and bill them in a tap.'
                       .tr,
                   style: AppType.bodyS.s(11).c(p.inkMuted),
                 ),

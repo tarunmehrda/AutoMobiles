@@ -1,0 +1,23 @@
+{
+ "Admin": "एडमिन",
+ "Ask the owner to open Staff in their app and tap your name.": "मालिक से कहें कि वे अपने ऐप में स्टाफ़ खोलें और आपके नाम पर टैप करें।",
+ "Check now": "अभी जाँचें",
+ "Checked at {0}. Checking again every few seconds.": "{0} पर जाँचा। हर कुछ सेकंड में फिर जाँच रहे हैं।",
+ "Checking for your invitation…": "आपका आमंत्रण जाँच रहे हैं…",
+ "Invited by the owner": "मालिक के आमंत्रण से",
+ "Join a workshop": "वर्कशॉप से जुड़ें",
+ "Joining as {0}. Only the workshop owner can give you access.": "{0} के रूप में जुड़ रहे हैं। सिर्फ़ वर्कशॉप के मालिक ही आपको एक्सेस दे सकते हैं।",
+ "Mechanic, counter or accountant at a workshop": "किसी वर्कशॉप में मैकेनिक, काउंटर या अकाउंटेंट",
+ "No invitation for this email yet. Ask the owner to add it.": "इस ईमेल के लिए अभी कोई आमंत्रण नहीं है। मालिक से इसे जोड़ने को कहें।",
+ "Register your workshop and run everything in it": "अपनी वर्कशॉप रजिस्टर करें और उसमें सब कुछ चलाएँ",
+ "Run the floor for a workshop that added you": "जिस वर्कशॉप ने आपको जोड़ा है, उसका काम संभालें",
+ "They tap Give app access, enter the email below and choose {0}.": "वे ऐप एक्सेस दें पर टैप करें, नीचे वाला ईमेल डालें और {0} चुनें।",
+ "This screen opens the workshop by itself. No need to sign in again.": "यह स्क्रीन वर्कशॉप अपने-आप खोल देगी। फिर से साइन इन करने की ज़रूरत नहीं।",
+ "Use a different email": "दूसरा ईमेल इस्तेमाल करें",
+ "Waiting for the owner": "मालिक का इंतज़ार",
+ "Welcome": "स्वागत है",
+ "Who are you?": "आप कौन हैं?",
+ "Workshop owner": "वर्कशॉप मालिक",
+ "You are in. Opening the workshop…": "आप जुड़ गए। वर्कशॉप खुल रही है…",
+ "your role": "अपनी भूमिका"
+}

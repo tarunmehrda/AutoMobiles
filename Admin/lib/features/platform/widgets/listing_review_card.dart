@@ -61,7 +61,7 @@ class _ListingReviewCardState extends ConsumerState<ListingReviewCard> {
       // Disposed by the sheet once its fields are gone, not by this await
       // while they are still animating out.
       disposing: [note],
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.lg, Gap.page, Gap.h1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -143,16 +143,17 @@ class _ListingReviewCardState extends ConsumerState<ListingReviewCard> {
                       style: AppType.bodyS.c(p.inkMuted),
                     ),
                     const SizedBox(height: Gap.sm),
-                    Row(
+                    Wrap(
+                      spacing: Gap.sm,
+                      runSpacing: Gap.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(Fmt.money(l.price),
                             style: AppType.money.c(p.ink)),
-                        const SizedBox(width: Gap.sm),
                         GPill(
                             label: l.condition,
                             tone: GTone.neutral,
                             compact: true),
-                        const SizedBox(width: Gap.xs),
                         GPill(
                           label: l.status,
                           tone: toneForStatus(l.status),
@@ -263,9 +264,12 @@ class _Action extends StatelessWidget {
             children: [
               Icon(icon, size: 16, color: filled ? Colors.white : tone),
               const SizedBox(width: Gap.sm),
-              Text(label,
-                  style:
-                      AppType.labelM.c(filled ? Colors.white : tone)),
+              Flexible(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.labelM.c(filled ? Colors.white : tone)),
+              ),
             ],
           ),
         ),

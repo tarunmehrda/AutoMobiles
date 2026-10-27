@@ -1,20 +1,110 @@
 12, MG Road
 12, MG Road, Bengaluru
+Add it as a new job and it is saved for next time.
+Add services to your online garage — this is what the customer sees on your page.
+Add spares, oil and labour rates once and bill them in a tap.
+Add the floor staff once, and they can be put on every job card after that.
+Add the grade once, with what a litre of it costs, and it is on every card after this one.
+Add the part once and it is priced, grouped and located for every card after this one.
+Add the shops you buy parts from and purchase orders can be raised against them.
+Add the team so work can be assigned per job card and per line on the mechanic copy.
+Add the work, the parts and the oil — or leave it empty and quote a figure below.
+Add what the workshop spends and it lands here with the supplier it went to.
+Advisory only — nothing stops it going on another vehicle. It is here so the next person does not have to ask.
+All four are needed to run the counter. The phone asks one at a time, and only when you tap Allow Access.
+All job cards, bookings and reviews go. Customers, vehicles and inventory stay.
+Allow contacts and the phone book appears here, with everyone you have already served marked as a customer.
+Already paid {0}. That money is in the Cash Book, so the amount paid can only go up here.
+Android will not open the camera until this app is allowed to use it. Turn it on in Settings and come back.
+Ask them to install GaragePro Admin and sign in with this email. They join this workshop the moment they do.
+Attendance is marked against a person, so add the team before anybody can punch in.
 B-14
 Bengaluru
 Bharat Auto Parts
+Billed counts a card once it reaches Complete. Collected counts payments on the day they were recorded, so the two need not match inside one window.
+Booking requests and new reviews land here the moment they happen.
 Bosch
+Both figures, and the shelf starts telling you what it is earning. The purchase price never leaves this app.
 Clutch overhauling
+Could not reach the server. Check the connection and try again.
+Could not read the location. Check GPS and try again, or type the address below.
+Customers get the app from this link, find you by name and book a slot.
+Every job card, every bill and every part — on one screen, at the counter or in your pocket.
+Everything else on this screen is a refinement of this one step. Pin it from the spot the team actually walks to — the bay, not the gate, not the office upstairs.
+Everything handed over with the vehicle. This list goes on the mechanic copy and is checked back at delivery.
+Find the vehicle, confirm the owner, take the handover, then build the bill.
 Front disc pad
+Give a person the app: tap App access, add their email and pick a role. They sign in with that email and land in this workshop, seeing only what the role allows.
 ICICI Lombard
+If the vehicle has visited before, all customer history, engine specs, and past service logs will auto-fill.
+Inactive mechanics stay on old job cards but cannot be assigned new work
+It disappears from this list, and the customer app shows it as declined.
+It was refused for good, so the app can no longer ask. Open the permission page and allow it, or type the address below instead.
+It was refused for good, so the app can no longer ask. Open the permission page and allow it, or type the coordinates below.
+Job cards, bookings, customers, stock and money. No workshop settings
+Jobcard live tracking, online bookings, online payment collection and many more.
 Karnataka
+Looks like you haven't carded any job card\nlike this.
+Messages are listed here when a card is opened, completed or closed. Tap Send to text one from this phone.
+Named the way the storeman asks for it, not the way the invoice from the distributor spells it.
+New slot requests from the customer app land here.
+No fix arrived. Step outside and try again, or type the coordinates.
 No job card
+No prior workshop records match this plate. You can onboard this as a new customer profile.
+No punch has been turned away. That is the reading you want.
+Nobody will be able to punch in or out until a new one is set. The register is kept.
+Note: with SMS Alert on, your SMS app opens with the vehicle-ready message for the customer. Tap Send there.
+Nothing has moved through the drawer on this day.
+One account runs the console. You can add mechanics afterwards.
+Only {0} is due — that is what will be recorded.
+Pick how you use this workshop app. You can only register a workshop as its owner.
+Price the work once here and every card after this one finds it ready.
+Punches appear here as the team marks in and out.
 Rahul
 Rahul Sharma
+Raise one against a supplier and receiving it restocks the shelf.
+Ratings customers leave after a job card closes appear here, against the card they relate to.
 SMS
+SMS Alert is off: no messages will be offered for this card. Next service is still recorded for {0}.
+Search above to pull one from the master list, or add a one-off line.
 Sharma
 Sharma Auto Works
+Shoot the vehicle at handover — panels, odometer, anything already damaged.
 Splendor Plus
+Staff you gave the app to lose it too. Customers keep their own app account.
+Stand in the workshop and pin it once. After that, staff can only punch in from within the circle you set.
+Stock moves on its own from here — parts leave when a card is opened and come back when a line is deleted.
+Supabase credentials are missing, so sign-in is unavailable. You can still run the console on this device.
+Switch on Online Garage first, so customers can find and book you.
+Texts from this phone: your SMS app opens with the message when a card is opened, completed or closed, and you tap Send
+The balance stays under Pending balance
+The card shows as overdue past this time, so the counter can see it slipping before the customer calls.
+The card, its bill and its message trail go for good. Any parts on it return to stock.
+The phone itself has location turned off, so there is nothing for the app to read. Switch it on and tap Use Current Location again.
+The phone itself has location turned off, so there is nothing to read. Switch it on and tap Use where I am standing again.
+The phone refused the request. Try again, and if it keeps happening the customer book below still works.
+The vehicle photographs come from Wikimedia Commons and from Unsplash. Most are published under a Creative Commons licence that asks for the photographer to be named, which is what this page does. Tap a row to open the original.
+They sign in with this email, with Google or a password. Email only: a phone number cannot be used.
+They were refused for good, so the app can no longer ask. Open Settings, allow Contacts, then come back.
+This card is closed — the bill is frozen. Reopen it from the job card menu to make changes.
+This device has no address book. The customer book fills this screen once you open your first job card.
+Three reminders are set around {0}. Each shows as "Ready to send" in the SMS report on its day — tap Send there to text it from this phone. The car is also listed under Service Due.
+Tick what the customer reported. These print on the mechanic copy in the order you add them.
+Try the job card number, the customer name or the registration.
+Type the registration number first, or switch on No Vehicle Number.
+Use the account this workshop was registered with.
+What came in with the vehicle. Ticking it here is what settles an argument at handover.
+What to check first, what the customer mentioned, anything the mechanic should know.
 WhatsApp
 Yamalube
+You came in from the reset link. Choose the password you will sign in with from now on.
+Your account is signed in, but the counter is still on its way down. Nothing has been lost.
+Your customers get the app from this link, find you by name and book a slot.
+Your phone book is empty and no customers are on record yet.
+under Settings → Business Details.
+{0} is signed out of this workshop on their next sync. Their name and the job cards they worked on stay.
+{0} keeps your workshop’s records for you. Here is exactly what that means.
+{0} of {1} photographs. The rest of the artwork — the marque badges and the illustrations — is public domain or licensed without an attribution requirement.
+{0} was turned off for good. Open Settings, allow it, then come back.
+{0} {1} comes off this card and out of the cash book.
 {0} • {1}

@@ -264,15 +264,6 @@ class _CreatePurchaseOrderPageState
                   onPressed: () => _add(LineKind.spare),
                 ),
               ),
-              const SizedBox(width: Gap.md),
-              Expanded(
-                child: GButton(
-                  label: 'Add Lube'.tr,
-                  kind: GButtonKind.outline,
-                  icon: Icons.water_drop_rounded,
-                  onPressed: () => _add(LineKind.lube),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: Gap.lg),

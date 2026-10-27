@@ -98,58 +98,75 @@ class GEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.c;
     final accent = tone ?? p.accent;
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: Gap.h1,
-          vertical: compact ? Gap.lg : Gap.xxl,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (drawn)
-              GArt(art, height: compact ? 96 : 138, semanticLabel: title)
-            else
-              Container(
-                height: compact ? 64 : 84,
-                width: compact ? 64 : 84,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      accent.withValues(alpha: 0.16),
-                      accent.withValues(alpha: 0.02),
-                    ],
-                  ),
-                ),
-                child: Icon(icon, size: compact ? 28 : 36, color: accent),
-              ),
-            SizedBox(height: compact ? Gap.lg : Gap.xxl),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: (compact ? AppType.h2 : AppType.d3)
-                  .c(p.ink)
-                  .w(FontWeight.w800),
-            ),
-            const SizedBox(height: Gap.sm),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppType.bodyM.c(p.inkMuted),
-            ),
-            if (actionLabel != null) ...[
-              const SizedBox(height: Gap.xxl),
-              GButton.accent(
-                label: actionLabel!,
-                onPressed: onAction,
-                expand: false,
-                size: GButtonSize.md,
-              ),
-            ],
-          ],
-        ),
+    final body = Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Gap.h1,
+        vertical: compact ? Gap.lg : Gap.xxl,
       ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (drawn)
+            GArt(art, height: compact ? 96 : 138, semanticLabel: title)
+          else
+            Container(
+              height: compact ? 64 : 84,
+              width: compact ? 64 : 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    accent.withValues(alpha: 0.16),
+                    accent.withValues(alpha: 0.02),
+                  ],
+                ),
+              ),
+              child: Icon(icon, size: compact ? 28 : 36, color: accent),
+            ),
+          SizedBox(height: compact ? Gap.lg : Gap.xxl),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: (compact ? AppType.h2 : AppType.d3)
+                .c(p.ink)
+                .w(FontWeight.w800),
+          ),
+          const SizedBox(height: Gap.sm),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppType.bodyM.c(p.inkMuted),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: Gap.xxl),
+            GButton.accent(
+              label: actionLabel!,
+              onPressed: onAction,
+              expand: false,
+              size: GButtonSize.md,
+            ),
+          ],
+        ],
+      ),
+    );
+    // Given a fixed height — a tab, the space under a search bar with the
+    // keyboard up, a large system font — the picture and the copy scale
+    // down together to fit it, instead of painting an overflow stripe
+    // across the bottom. Not a scroll view: this often sits inside a list
+    // that owns pull-to-refresh, and a nested scrollable would take the
+    // drag from it.
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (!box.hasBoundedHeight || !box.hasBoundedWidth) {
+          return Center(child: body);
+        }
+        return Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(width: box.maxWidth, child: body),
+          ),
+        );
+      },
     );
   }
 }
